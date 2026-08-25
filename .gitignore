@@ -1,0 +1,19 @@
+# Ansible Vault / secrets
+inventory/group_vars/all/vault.yml
+*.vault
+
+# SSH private keys
+*.pem
+*.key
+id_rsa
+id_ed25519
+jenkins_gitops
+
+# Temporary files
+*.retry
+*.swp
+*.tmp
+
+# Python
+__pycache__/
+*.pyc

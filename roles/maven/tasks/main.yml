@@ -1,0 +1,34 @@
+---
+- name: Install required packages for Maven
+  ansible.builtin.dnf:
+    name:
+      - tar
+      - gzip
+    state: present
+
+- name: Download Apache Maven
+  ansible.builtin.get_url:
+    url: "{{ maven_download_url }}"
+    dest: "/tmp/{{ maven_archive }}"
+    mode: "0644"
+
+- name: Extract Apache Maven
+  ansible.builtin.unarchive:
+    src: "/tmp/{{ maven_archive }}"
+    dest: /opt
+    remote_src: true
+    creates: "{{ maven_install_dir }}/bin/mvn"
+
+- name: Create Maven symbolic link
+  ansible.builtin.file:
+    src: "{{ maven_install_dir }}"
+    dest: "{{ maven_link_dir }}"
+    state: link
+    force: true
+
+- name: Create mvn command symbolic link
+  ansible.builtin.file:
+    src: "{{ maven_link_dir }}/bin/mvn"
+    dest: /usr/local/bin/mvn
+    state: link
+    force: true

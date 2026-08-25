@@ -1,0 +1,9 @@
+---
+maven_version: "3.9.16"
+
+maven_archive: "apache-maven-{{ maven_version }}-bin.tar.gz"
+
+maven_download_url: "https://archive.apache.org/dist/maven/maven-3/{{ maven_version }}/binaries/{{ maven_archive }}"
+
+maven_install_dir: "/opt/apache-maven-{{ maven_version }}"
+maven_link_dir: "/opt/maven"

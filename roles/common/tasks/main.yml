@@ -1,0 +1,46 @@
+---
+- name: Set system hostname
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: Get current timezone
+  ansible.builtin.command:
+    cmd: timedatectl show --property=Timezone --value
+  register: current_timezone
+  changed_when: false
+
+- name: Set timezone to Asia/Seoul
+  ansible.builtin.command:
+    cmd: timedatectl set-timezone Asia/Seoul
+  when: current_timezone.stdout != "Asia/Seoul"
+
+- name: Install common packages
+  ansible.builtin.dnf:
+    name:
+      - vim
+      - curl
+      - wget
+      - git
+      - net-tools
+      - bind-utils
+      - bash-completion
+      - rsync
+      - tar
+    state: present
+# ------------------------------------------------------------
+# /etc/hosts - Infra hostname 표준화
+# ------------------------------------------------------------
+
+- name: Remove old infra.example.com entry
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\s*192\.168\.14\.62\s+infra\.example\.com\s+infra\s*$'
+    state: absent
+    backup: true
+
+- name: Configure Infra nplan.local entry
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^\s*192\.168\.14\.62\s+'
+    line: '192.168.14.62 infra.nplan.local infra'
+    state: present

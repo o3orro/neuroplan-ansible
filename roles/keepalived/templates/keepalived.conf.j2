@@ -1,0 +1,35 @@
+global_defs {
+    router_id {{ keepalived_router_id }}
+    script_user root
+    enable_script_security
+}
+
+vrrp_script check_haproxy {
+    script "/usr/bin/pgrep -x haproxy"
+    interval 2
+    weight -30
+    fall 2
+    rise 2
+}
+
+vrrp_instance k8s_api {
+    state {{ keepalived_state }}
+    interface {{ keepalived_interface }}
+    virtual_router_id {{ keepalived_virtual_router_id }}
+    priority {{ keepalived_priority }}
+    advert_int 1
+
+    unicast_src_ip {{ keepalived_src_ip }}
+
+    unicast_peer {
+        {{ keepalived_peer_ip }}
+    }
+
+    virtual_ipaddress {
+        {{ keepalived_api_vip }}/24 dev {{ keepalived_interface }}
+    }
+
+    track_script {
+        check_haproxy
+    }
+}

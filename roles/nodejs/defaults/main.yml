@@ -1,0 +1,10 @@
+---
+nodejs_version: "24.19.0"
+nodejs_arch: "x64"
+
+nodejs_archive: "node-v{{ nodejs_version }}-linux-{{ nodejs_arch }}.tar.xz"
+
+nodejs_download_url: "https://nodejs.org/dist/v{{ nodejs_version }}/{{ nodejs_archive }}"
+
+nodejs_install_dir: "/opt/node-v{{ nodejs_version }}-linux-{{ nodejs_arch }}"
+nodejs_link_dir: "/opt/node"

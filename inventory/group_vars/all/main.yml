@@ -1,0 +1,75 @@
+---
+common_timezone: "Asia/Seoul"
+
+common_packages:
+  - vim
+  - curl
+  - wget
+  - git
+  - net-tools
+  - bind-utils
+  - bash-completion
+  - rsync
+  - tar
+  - chrony
+  - firewalld
+
+infra_dns_server: "192.168.14.62"
+infra_ntp_server: "192.168.14.62"
+
+# Infra DNS/NTP 서버 구축 전에는 false
+common_use_infra_dns: false
+common_use_infra_ntp: false
+
+# =========================================================
+# GitHub
+# =========================================================
+github_owner: "o3orro"
+github_app_repository: "neuroplan-app"
+github_gitops_repository: "neuroplan-gitops"
+
+
+# =========================================================
+# Docker Hub
+# =========================================================
+dockerhub_username: "yerinnn"
+dockerhub_repository: "neuroplan-ci-test"
+
+
+# =========================================================
+# GitOps
+# =========================================================
+gitops_branch: "main"
+gitops_manifest_path: "manifests"
+
+
+# =========================================================
+# Jenkins
+# =========================================================
+
+# Ansible이 Jenkins API에 접근할 때 사용하는 주소
+jenkins_api_url: "http://127.0.0.1:8080"
+
+# 사용자가 브라우저에서 Jenkins에 접근하는 주소
+jenkins_public_url: "http://192.168.14.21:8080"
+
+# Jenkins 관리자 계정 / API Token
+# 실제 값은 Vault에 저장
+jenkins_admin_user: "{{ vault_jenkins_admin_user }}"
+jenkins_api_token: "{{ vault_jenkins_api_token }}"
+
+
+# =========================================================
+# Jenkins Credentials ID
+# =========================================================
+jenkins_dockerhub_credential_id: "dockerhub-credentials"
+jenkins_gitops_credential_id: "gitops-ssh-credentials"
+
+
+# =========================================================
+# Jenkins Pipeline Job
+# =========================================================
+jenkins_job_name: "neuroplan-ci"
+jenkins_git_branch: "main"
+jenkins_pipeline_script_path: "Jenkinsfile"
+jenkins_poll_scm: "H/2 * * * *"

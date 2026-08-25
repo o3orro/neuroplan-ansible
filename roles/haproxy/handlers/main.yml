@@ -1,0 +1,9 @@
+---
+- name: Reload sysctl
+  ansible.builtin.command:
+    cmd: sysctl --system
+
+- name: Restart haproxy
+  ansible.builtin.service:
+    name: haproxy
+    state: restarted

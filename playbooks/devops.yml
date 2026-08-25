@@ -1,0 +1,13 @@
+---
+- name: Configure DevOps CI Server
+  hosts: devops_nodes
+  become: true
+
+  roles:
+    - java
+    - maven
+    - nodejs
+    - docker
+    - jenkins
+    - helm
+    - argocd

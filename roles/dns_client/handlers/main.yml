@@ -1,0 +1,6 @@
+---
+- name: Reapply DNS configuration
+  ansible.builtin.command:
+    cmd: >
+      nmcli device reapply
+      {{ dns_mgmt_interface.stdout | trim }}

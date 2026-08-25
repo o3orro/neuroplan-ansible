@@ -1,0 +1,48 @@
+---
+- name: Install required packages for Node.js
+  ansible.builtin.dnf:
+    name:
+      - tar
+      - xz
+    state: present
+
+- name: Download Node.js
+  ansible.builtin.get_url:
+    url: "{{ nodejs_download_url }}"
+    dest: "/tmp/{{ nodejs_archive }}"
+    mode: "0644"
+
+- name: Extract Node.js
+  ansible.builtin.unarchive:
+    src: "/tmp/{{ nodejs_archive }}"
+    dest: /opt
+    remote_src: true
+    creates: "{{ nodejs_install_dir }}/bin/node"
+
+- name: Create Node.js symbolic link
+  ansible.builtin.file:
+    src: "{{ nodejs_install_dir }}"
+    dest: "{{ nodejs_link_dir }}"
+    state: link
+    force: true
+
+- name: Create node command symbolic link
+  ansible.builtin.file:
+    src: "{{ nodejs_link_dir }}/bin/node"
+    dest: /usr/local/bin/node
+    state: link
+    force: true
+
+- name: Create npm command symbolic link
+  ansible.builtin.file:
+    src: "{{ nodejs_link_dir }}/bin/npm"
+    dest: /usr/local/bin/npm
+    state: link
+    force: true
+
+- name: Create npx command symbolic link
+  ansible.builtin.file:
+    src: "{{ nodejs_link_dir }}/bin/npx"
+    dest: /usr/local/bin/npx
+    state: link
+    force: true

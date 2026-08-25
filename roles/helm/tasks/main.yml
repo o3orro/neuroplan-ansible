@@ -1,0 +1,43 @@
+---
+- name: Install packages required for Helm
+  ansible.builtin.dnf:
+    name:
+      - tar
+      - gzip
+    state: present
+
+- name: Create Helm installation directory
+  ansible.builtin.file:
+    path: "{{ helm_install_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Download Helm archive
+  ansible.builtin.get_url:
+    url: "{{ helm_download_url }}"
+    dest: "/tmp/{{ helm_archive }}"
+    mode: "0644"
+
+- name: Extract Helm archive
+  ansible.builtin.unarchive:
+    src: "/tmp/{{ helm_archive }}"
+    dest: "{{ helm_install_dir }}"
+    remote_src: true
+    creates: "{{ helm_install_dir }}/{{ helm_os }}-{{ helm_arch }}/helm"
+
+- name: Create Helm command symbolic link
+  ansible.builtin.file:
+    src: "{{ helm_install_dir }}/{{ helm_os }}-{{ helm_arch }}/helm"
+    dest: "{{ helm_binary_path }}"
+    state: link
+    force: true
+
+- name: Verify Helm installation
+  ansible.builtin.command:
+    cmd: "{{ helm_binary_path }} version --short"
+  register: helm_version_check
+  changed_when: false
+
+- name: Show Helm version
+  ansible.builtin.debug:
+    var: helm_version_check.stdout

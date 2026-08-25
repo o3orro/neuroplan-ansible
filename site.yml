@@ -1,0 +1,8 @@
+---
+- name: Apply common configuration
+  hosts: managed_servers
+  become: true
+  gather_facts: true
+
+  roles:
+    - common

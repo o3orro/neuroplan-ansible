@@ -1,0 +1,17 @@
+---
+# Argo CD Helm
+argocd_namespace: "argocd"
+argocd_release_name: "argocd"
+
+argocd_repo_name: "argo"
+argocd_repo_url: "https://argoproj.github.io/argo-helm"
+
+argocd_chart: "argo/argo-cd"
+argocd_chart_version: "10.4.0"
+
+argocd_kubeconfig: "/home/devops/.kube/config"
+
+# Argo CD Application
+argocd_application_name: "neuroplan"
+argocd_project: "default"
+argocd_destination_namespace: "neuroplan"

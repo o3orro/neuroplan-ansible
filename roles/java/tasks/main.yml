@@ -1,0 +1,5 @@
+---
+- name: Install Java 21 packages
+  ansible.builtin.dnf:
+    name: "{{ java_packages }}"
+    state: present
