@@ -1,0 +1,294 @@
+---
+# ---------------------------------------------------------
+# Pre-check
+# ---------------------------------------------------------
+
+- name: Require a Red Hat family operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_os_family == "RedHat"
+      - ansible_architecture == "x86_64"
+    fail_msg: "This role supports Red Hat family x86_64 systems only."
+
+
+- name: Require strong MinIO credentials
+  ansible.builtin.assert:
+    that:
+      - minio_root_user | length >= 3
+      - minio_root_password | length >= 16
+      - minio_root_user != "minioadmin"
+      - minio_root_password != "minioadmin"
+    fail_msg: >-
+      Use a non-default access key and a secret key
+      of at least 16 characters.
+  no_log: true
+
+
+- name: Check that the MinIO data path is a separate mount
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - --mountpoint
+      - "{{ minio_data_dir }}"
+  register: minio_mount
+  changed_when: false
+  failed_when: false
+
+
+- name: Stop before installation when the data disk is not mounted
+  ansible.builtin.assert:
+    that:
+      - minio_mount.rc == 0
+    fail_msg: >-
+      {{ minio_data_dir }} is not a mountpoint.
+      Identify, format, and permanently mount the PC6 MinIO
+      data disk before running this role.
+
+
+- name: Read MinIO data mount details
+  ansible.builtin.command:
+    argv:
+      - findmnt
+      - --noheadings
+      - --output
+      - SOURCE,FSTYPE,TARGET,OPTIONS
+      - "{{ minio_data_dir }}"
+  register: minio_mount_details
+  changed_when: false
+
+
+# ---------------------------------------------------------
+# Prerequisites
+# ---------------------------------------------------------
+
+- name: Install build and runtime prerequisites
+  ansible.builtin.dnf:
+    name:
+      - ca-certificates
+      - curl
+      - git
+      - tar
+      - gzip
+    state: present
+    update_cache: true
+
+
+# ---------------------------------------------------------
+# Go
+# ---------------------------------------------------------
+
+- name: Download the pinned Go toolchain
+  ansible.builtin.get_url:
+    url: "{{ go_download_url }}"
+    dest: "/var/tmp/{{ go_archive }}"
+    checksum: "sha256:{{ go_archive_sha256 }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+
+- name: Create the versioned Go installation directory
+  ansible.builtin.file:
+    path: "{{ go_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+
+- name: Install Go without replacing a system Go installation
+  ansible.builtin.unarchive:
+    src: "/var/tmp/{{ go_archive }}"
+    dest: "{{ go_install_dir }}"
+    remote_src: true
+    extra_opts:
+      - "--strip-components=1"
+    creates: "{{ go_install_dir }}/bin/go"
+
+
+- name: Verify the Go toolchain version
+  ansible.builtin.command:
+    argv:
+      - "{{ go_install_dir }}/bin/go"
+      - version
+  register: go_version_result
+  changed_when: false
+  failed_when: "('go' + go_version) not in go_version_result.stdout"
+
+
+# ---------------------------------------------------------
+# MinIO build
+# ---------------------------------------------------------
+
+- name: Create the isolated MinIO source build path
+  ansible.builtin.file:
+    path: "{{ minio_build_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+
+- name: Build the pinned MinIO Community release from source
+  ansible.builtin.command:
+    argv:
+      - "{{ go_install_dir }}/bin/go"
+      - install
+      - -v
+      - "github.com/minio/minio@{{ minio_release }}"
+    creates: "{{ minio_build_dir }}/bin/minio"
+  environment:
+    GOROOT: "{{ go_install_dir }}"
+    GOPATH: "{{ minio_build_dir }}"
+    PATH: "{{ go_install_dir }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+
+
+- name: Install the compiled MinIO binary
+  ansible.builtin.copy:
+    src: "{{ minio_build_dir }}/bin/minio"
+    dest: "{{ minio_binary_path }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart MinIO
+
+
+# ---------------------------------------------------------
+# MinIO service account
+# ---------------------------------------------------------
+
+- name: Create the MinIO system group
+  ansible.builtin.group:
+    name: "{{ minio_service_group }}"
+    system: true
+    state: present
+
+
+- name: Create the MinIO system account
+  ansible.builtin.user:
+    name: "{{ minio_service_user }}"
+    group: "{{ minio_service_group }}"
+    home: /var/lib/minio
+    shell: /sbin/nologin
+    system: true
+    create_home: true
+    state: present
+
+
+- name: Assign the data directory to the MinIO service account
+  ansible.builtin.file:
+    path: "{{ minio_data_dir }}"
+    state: directory
+    owner: "{{ minio_service_user }}"
+    group: "{{ minio_service_group }}"
+    mode: "0750"
+
+
+# ---------------------------------------------------------
+# MinIO configuration
+# ---------------------------------------------------------
+
+- name: Write the protected MinIO environment file
+  ansible.builtin.template:
+    src: minio.env.j2
+    dest: /etc/default/minio
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+  notify: Restart MinIO
+
+
+- name: Install the MinIO systemd unit
+  ansible.builtin.template:
+    src: minio.service.j2
+    dest: /etc/systemd/system/minio.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart MinIO
+
+
+# ---------------------------------------------------------
+# Service
+# ---------------------------------------------------------
+
+- name: Enable and start MinIO
+  ansible.builtin.systemd:
+    name: minio
+    enabled: true
+    state: started
+    daemon_reload: true
+
+
+- name: Apply pending MinIO restart before validation
+  ansible.builtin.meta: flush_handlers
+
+
+# ---------------------------------------------------------
+# Validation
+# ---------------------------------------------------------
+
+- name: Wait for the local MinIO S3 API
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ minio_api_port }}"
+    state: started
+    connect_timeout: 3
+    timeout: 30
+
+
+- name: Wait for the local MinIO Console
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ minio_console_port }}"
+    state: started
+    connect_timeout: 3
+    timeout: 30
+
+
+- name: Verify the MinIO liveness endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ minio_api_port }}/minio/health/live"
+    method: GET
+    status_code: 200
+    return_content: false
+
+
+- name: Verify the MinIO readiness endpoint
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ minio_api_port }}/minio/health/ready"
+    method: GET
+    status_code: 200
+    return_content: false
+
+
+- name: Read the installed MinIO version
+  ansible.builtin.command:
+    argv:
+      - "{{ minio_binary_path }}"
+      - --version
+  register: minio_version_result
+  changed_when: false
+
+
+- name: Read the installed binary checksum
+  ansible.builtin.command:
+    argv:
+      - sha256sum
+      - "{{ minio_binary_path }}"
+  register: minio_checksum_result
+  changed_when: false
+
+
+- name: Show the installation result
+  ansible.builtin.debug:
+    msg:
+      - "Mount: {{ minio_mount_details.stdout }}"
+      - "Go: {{ go_version_result.stdout }}"
+      - "MinIO: {{ minio_version_result.stdout_lines | first }}"
+      - "Binary SHA-256: {{ minio_checksum_result.stdout }}"
+      - "S3 API Port: {{ minio_api_port }}"
+      - "Console Port: {{ minio_console_port }}"
+      - "Firewall rules are intentionally not modified by this role."

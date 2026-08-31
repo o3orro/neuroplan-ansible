@@ -1,36 +1,53 @@
 ---
 # ============================================================
-# Infra - DNS Client
-# DNS Server : Infra 192.168.14.62
-# Search Domain : nplan.local
+# InfraReady - DNS Client
+# DNS Server : 192.168.14.62
+# Domain     : nplan.local
 # ============================================================
 
 
-# Management Network(192.168.14.0/24)이 붙어 있는 NIC 확인
+# ------------------------------------------------------------
+# 1. Management NIC 탐지
+# ------------------------------------------------------------
+
 - name: Find Management interface
   ansible.builtin.shell: |
     ip -4 -o addr show |
-    awk '$4 ~ /^192\.168\.14\./ {print $2; exit}'
+    awk -v prefix="{{ dns_mgmt_prefix }}" 'index($4, prefix) == 1 {print $2; exit}'
   register: dns_mgmt_interface
   changed_when: false
-
+  check_mode: false
 
 - name: Verify Management interface
   ansible.builtin.assert:
     that:
       - dns_mgmt_interface.stdout | trim | length > 0
-    fail_msg: "192.168.14.0/24 Management interface를 찾을 수 없습니다."
+    fail_msg: "Management Network(192.168.14.0/24) 인터페이스를 찾을 수 없습니다."
 
 
-# 해당 NIC의 NetworkManager Connection 이름 확인
+# ------------------------------------------------------------
+# 2. 해당 NIC의 NetworkManager Connection 탐지
+# ------------------------------------------------------------
+
 - name: Find Management NetworkManager connection
   ansible.builtin.command:
-    cmd: >
-      nmcli -g GENERAL.CONNECTION
-      device show {{ dns_mgmt_interface.stdout | trim }}
+    argv:
+      - nmcli
+      - -g
+      - GENERAL.CONNECTION
+      - device
+      - show
+      - "{{ dns_mgmt_interface.stdout | trim }}"
   register: dns_mgmt_connection
   changed_when: false
+  check_mode: false
 
+- name: Verify Management connection
+  ansible.builtin.assert:
+    that:
+      - dns_mgmt_connection.stdout | trim | length > 0
+      - dns_mgmt_connection.stdout | trim != "--"
+    fail_msg: "Management NIC의 NetworkManager Connection을 찾을 수 없습니다."
 
 - name: Display detected Management network
   ansible.builtin.debug:
@@ -39,94 +56,182 @@
       - "Connection: {{ dns_mgmt_connection.stdout | trim }}"
 
 
-# 현재 DNS 확인
+# ------------------------------------------------------------
+# 3. 현재 DNS 서버 확인
+# ------------------------------------------------------------
+
 - name: Get current DNS servers
   ansible.builtin.command:
-    cmd: >
-      nmcli -g ipv4.dns
-      connection show "{{ dns_mgmt_connection.stdout | trim }}"
+    argv:
+      - nmcli
+      - -g
+      - ipv4.dns
+      - connection
+      - show
+      - "{{ dns_mgmt_connection.stdout | trim }}"
   register: current_dns
   changed_when: false
+  check_mode: false
 
 
-# DNS = Infra
+# ------------------------------------------------------------
+# 4. DNS Server를 Infra로 설정
+# 실제 변경 Task이므로 check_mode: false 사용하지 않음
+# ------------------------------------------------------------
+
 - name: Configure Infra DNS server
   ansible.builtin.command:
-    cmd: >
-      nmcli connection modify
-      "{{ dns_mgmt_connection.stdout | trim }}"
-      ipv4.dns "192.168.14.62"
-  when: "'192.168.14.62' not in current_dns.stdout"
+    argv:
+      - nmcli
+      - connection
+      - modify
+      - "{{ dns_mgmt_connection.stdout | trim }}"
+      - ipv4.dns
+      - "{{ dns_server_ip }}"
+  when: current_dns.stdout | trim != dns_server_ip
   notify: Reapply DNS configuration
 
 
-# 현재 DNS Search 확인
+# ------------------------------------------------------------
+# 5. 현재 DNS Search Domain 확인
+# ------------------------------------------------------------
+
 - name: Get current DNS search domain
   ansible.builtin.command:
-    cmd: >
-      nmcli -g ipv4.dns-search
-      connection show "{{ dns_mgmt_connection.stdout | trim }}"
+    argv:
+      - nmcli
+      - -g
+      - ipv4.dns-search
+      - connection
+      - show
+      - "{{ dns_mgmt_connection.stdout | trim }}"
   register: current_dns_search
   changed_when: false
+  check_mode: false
 
 
-# Search Domain = nplan.local
+# ------------------------------------------------------------
+# 6. Search Domain 설정
+# 실제 변경 Task
+# ------------------------------------------------------------
+
 - name: Configure DNS search domain
   ansible.builtin.command:
-    cmd: >
-      nmcli connection modify
-      "{{ dns_mgmt_connection.stdout | trim }}"
-      ipv4.dns-search "nplan.local"
-  when: "'nplan.local' not in current_dns_search.stdout"
+    argv:
+      - nmcli
+      - connection
+      - modify
+      - "{{ dns_mgmt_connection.stdout | trim }}"
+      - ipv4.dns-search
+      - "{{ dns_search_domain }}"
+  when: current_dns_search.stdout | trim != dns_search_domain
   notify: Reapply DNS configuration
 
 
-# DHCP 등에서 들어오는 다른 DNS 차단
+# ------------------------------------------------------------
+# 7. DHCP/자동 DNS 차단 여부 확인
+# ------------------------------------------------------------
+
 - name: Get ignore-auto-dns setting
   ansible.builtin.command:
-    cmd: >
-      nmcli -g ipv4.ignore-auto-dns
-      connection show "{{ dns_mgmt_connection.stdout | trim }}"
+    argv:
+      - nmcli
+      - -g
+      - ipv4.ignore-auto-dns
+      - connection
+      - show
+      - "{{ dns_mgmt_connection.stdout | trim }}"
   register: current_ignore_auto_dns
   changed_when: false
+  check_mode: false
 
+
+# ------------------------------------------------------------
+# 8. 자동 DNS 사용 안 함
+# 실제 변경 Task
+# ------------------------------------------------------------
 
 - name: Disable automatic DNS
   ansible.builtin.command:
-    cmd: >
-      nmcli connection modify
-      "{{ dns_mgmt_connection.stdout | trim }}"
-      ipv4.ignore-auto-dns yes
+    argv:
+      - nmcli
+      - connection
+      - modify
+      - "{{ dns_mgmt_connection.stdout | trim }}"
+      - ipv4.ignore-auto-dns
+      - "yes"
   when: current_ignore_auto_dns.stdout | trim != "yes"
   notify: Reapply DNS configuration
 
 
-# 변경사항 즉시 적용
+# ------------------------------------------------------------
+# 9. 변경사항 즉시 적용
+# Check Mode에서는 실제 Handler 변경 작업은 수행되지 않음
+# ------------------------------------------------------------
+
 - name: Apply pending DNS changes
   ansible.builtin.meta: flush_handlers
 
 
-# 내부 DNS 검증
+# ------------------------------------------------------------
+# 10. 실제 적용된 DNS 확인
+# ------------------------------------------------------------
+
+- name: Check active DNS server
+  ansible.builtin.command:
+    argv:
+      - nmcli
+      - -g
+      - IP4.DNS
+      - device
+      - show
+      - "{{ dns_mgmt_interface.stdout | trim }}"
+  register: active_dns
+  changed_when: false
+  check_mode: false
+  failed_when: dns_server_ip not in active_dns.stdout
+
+
+# ------------------------------------------------------------
+# 11. 내부 DNS 검증
+# ------------------------------------------------------------
+
 - name: Verify internal DNS resolution
   ansible.builtin.command:
     cmd: getent hosts infra.nplan.local
   register: internal_dns_test
   changed_when: false
-  failed_when: "'192.168.14.62' not in internal_dns_test.stdout"
+  check_mode: false
+  failed_when: dns_server_ip not in internal_dns_test.stdout
 
 
-# 외부 DNS 검증
+# ------------------------------------------------------------
+# 12. 외부 DNS 검증
+# ------------------------------------------------------------
+
 - name: Verify external DNS resolution
   ansible.builtin.command:
     cmd: getent hosts mirrors.centos.org
   register: external_dns_test
   changed_when: false
+  check_mode: false
+  failed_when: external_dns_test.stdout | trim | length == 0
 
 
-- name: Display DNS validation
+# ------------------------------------------------------------
+# 13. 결과 출력
+# ------------------------------------------------------------
+
+- name: Display DNS validation result
   ansible.builtin.debug:
     msg:
-      - "DNS Server: 192.168.14.62"
-      - "Search Domain: nplan.local"
-      - "Internal DNS: OK"
-      - "External DNS: OK"
+      - "========================================"
+      - " DNS CLIENT VALIDATION SUMMARY"
+      - "========================================"
+      - "Host                 : {{ inventory_hostname }}"
+      - "Management Interface : {{ dns_mgmt_interface.stdout | trim }}"
+      - "DNS Server           : {{ dns_server_ip }}"
+      - "Search Domain        : {{ dns_search_domain }}"
+      - "Internal DNS         : OK"
+      - "External DNS         : OK"
+      - "========================================"

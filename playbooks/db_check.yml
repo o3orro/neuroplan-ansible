@@ -1,0 +1,228 @@
+---
+# ============================================================
+# Database Health Check
+# - 설정 변경 없음
+# - MariaDB / Replication / MaxScale 상태만 조회
+# ============================================================
+
+# ============================================================
+# MariaDB Primary / Replica
+# ============================================================
+
+- name: Check MariaDB Health
+  hosts: database
+  become: true
+  gather_facts: false
+
+  vars:
+    mariadb_port: 3306
+
+  tasks:
+
+    # --------------------------------------------------------
+    # MariaDB Service
+    # --------------------------------------------------------
+
+    - name: Check MariaDB service
+      ansible.builtin.command:
+        cmd: systemctl is-active mariadb
+      register: mariadb_status
+      changed_when: false
+      failed_when: false
+
+    - name: Check MariaDB enabled status
+      ansible.builtin.command:
+        cmd: systemctl is-enabled mariadb
+      register: mariadb_enabled
+      changed_when: false
+      failed_when: false
+
+    # --------------------------------------------------------
+    # MariaDB Port
+    # --------------------------------------------------------
+
+    - name: Check MariaDB port 3306
+      ansible.builtin.shell:
+        cmd: >
+          ss -lnt |
+          awk '{print $4}' |
+          grep -Eq '(^|:){{ mariadb_port }}$'
+      register: mariadb_port_status
+      changed_when: false
+      failed_when: false
+
+    # --------------------------------------------------------
+    # Replication - Replica only
+    # --------------------------------------------------------
+
+    - name: Check replication status on Replica
+      ansible.builtin.shell:
+        cmd: |
+          if command -v mariadb >/dev/null 2>&1; then
+            mariadb -e "SHOW SLAVE STATUS\G"
+          elif command -v mysql >/dev/null 2>&1; then
+            mysql -e "SHOW SLAVE STATUS\G"
+          else
+            exit 127
+          fi
+      register: replication_status
+      changed_when: false
+      failed_when: false
+      when: inventory_hostname == "db-replica"
+
+    - name: Show raw replication check result
+      ansible.builtin.debug:
+        msg:
+          - "rc: {{ replication_status.rc }}"
+          - "stdout: {{ replication_status.stdout }}"
+          - "stderr: {{ replication_status.stderr }}"
+      when: inventory_hostname == "db-replica"
+
+    - name: Extract replication IO status
+      ansible.builtin.set_fact:
+        replication_io: >-
+          {{
+            (
+              replication_status.stdout
+              | regex_findall('(?:Slave|Replica)_IO_Running:\\s*(\\S+)')
+              | first
+            ) | default('UNKNOWN', true)
+          }}
+        replication_sql: >-
+          {{
+            (
+              replication_status.stdout
+              | regex_findall('(?:Slave|Replica)_SQL_Running:\\s*(\\S+)')
+              | first
+            ) | default('UNKNOWN', true)
+          }}
+      when:
+        - inventory_hostname == "db-replica"
+        - replication_status.rc == 0
+    # --------------------------------------------------------
+    # Result
+    # --------------------------------------------------------
+
+    - name: Show MariaDB health result
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "MariaDB service: {{ mariadb_status.stdout | default('unknown') }}"
+          - "MariaDB enabled: {{ mariadb_enabled.stdout | default('unknown') }}"
+          - "Port 3306: {{ 'LISTENING' if mariadb_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "Replication IO: {{ replication_io | default('N/A') }}"
+          - "Replication SQL: {{ replication_sql | default('N/A') }}"
+
+    - name: Validate MariaDB essential status
+      ansible.builtin.assert:
+        that:
+          - mariadb_status.stdout == "active"
+          - mariadb_enabled.stdout == "enabled"
+          - mariadb_port_status.rc == 0
+        success_msg: "{{ inventory_hostname }} MariaDB health check PASSED"
+        fail_msg: "{{ inventory_hostname }} MariaDB health check FAILED"
+
+    - name: Show Replica replication result
+      ansible.builtin.debug:
+        msg:
+          - "Replication IO: {{ replication_io | default('UNKNOWN') }}"
+          - "Replication SQL: {{ replication_sql | default('UNKNOWN') }}"
+      when: inventory_hostname == "db-replica"
+
+# ============================================================
+# MaxScale - DevOps VM
+# ============================================================
+
+- name: Check MaxScale Health
+  hosts: devops_nodes
+  become: true
+  gather_facts: false
+
+  vars:
+    maxscale_service_port: 4006
+    maxscale_admin_port: 8989
+
+  tasks:
+
+    - name: Check MaxScale service
+      ansible.builtin.command:
+        cmd: systemctl is-active maxscale
+      register: maxscale_status
+      changed_when: false
+      failed_when: false
+
+    - name: Check MaxScale enabled status
+      ansible.builtin.command:
+        cmd: systemctl is-enabled maxscale
+      register: maxscale_enabled
+      changed_when: false
+      failed_when: false
+
+    - name: Check MaxScale service port
+      ansible.builtin.shell:
+        cmd: >
+          ss -lnt |
+          awk '{print $4}' |
+          grep -Eq '(^|:){{ maxscale_service_port }}$'
+      register: maxscale_port_status
+      changed_when: false
+      failed_when: false
+
+    - name: Check MaxScale admin port
+      ansible.builtin.shell:
+        cmd: >
+          ss -lnt |
+          awk '{print $4}' |
+          grep -Fx '127.0.0.1:8989'
+      register: maxscale_admin_status
+      changed_when: false
+      failed_when: false
+
+    - name: Check MaxScale backend servers
+      ansible.builtin.command:
+        cmd: maxctrl list servers
+      register: maxscale_servers
+      changed_when: false
+      failed_when: false
+
+    - name: Show MaxScale health result
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "MaxScale service: {{ maxscale_status.stdout | default('unknown') }}"
+          - "MaxScale enabled: {{ maxscale_enabled.stdout | default('unknown') }}"
+          - "Service port 4006: {{ 'LISTENING' if maxscale_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "Admin port 8989: {{ 'LISTENING' if maxscale_admin_status.rc == 0 else 'NOT LISTENING' }}"
+
+    - name: Show MaxScale backend status
+      ansible.builtin.debug:
+        var: maxscale_servers.stdout_lines
+      when: maxscale_servers.rc == 0
+
+    - name: Validate MaxScale essential status
+      ansible.builtin.assert:
+        that:
+          - maxscale_status.stdout == "active"
+          - maxscale_enabled.stdout == "enabled"
+          - maxscale_port_status.rc == 0
+        success_msg: "MaxScale health check PASSED"
+        fail_msg: "MaxScale health check FAILED"
+
+    - name: Show DB final summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - " DATABASE HEALTH CHECK SUMMARY"
+          - "========================================"
+          - "MariaDB Primary    : {{ hostvars['db-primary'].mariadb_status.stdout | default('UNKNOWN') }}"
+          - "MariaDB Replica    : {{ hostvars['db-replica'].mariadb_status.stdout | default('UNKNOWN') }}"
+          - "Primary Port 3306  : {{ 'LISTENING' if hostvars['db-primary'].mariadb_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "Replica Port 3306  : {{ 'LISTENING' if hostvars['db-replica'].mariadb_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "Replication IO     : {{ hostvars['db-replica'].replication_io | default('UNKNOWN') }}"
+          - "Replication SQL    : {{ hostvars['db-replica'].replication_sql | default('UNKNOWN') }}"
+          - "MaxScale Service   : {{ maxscale_status.stdout | default('UNKNOWN') }}"
+          - "MaxScale Port 4006 : {{ 'LISTENING' if maxscale_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "Admin Port 8989    : {{ 'LISTENING' if maxscale_admin_status.rc == 0 else 'NOT LISTENING' }}"
+          - "========================================"
+          - "Overall            : PASSED"
+          - "========================================"          

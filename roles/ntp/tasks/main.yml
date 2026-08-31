@@ -1,0 +1,199 @@
+---
+# ============================================================
+# InfraReady - NTP
+# Server : Infra 192.168.14.62
+# ============================================================
+
+# ------------------------------------------------------------
+# 1. NTP Mode 검증
+# ------------------------------------------------------------
+
+- name: Validate NTP mode
+  ansible.builtin.assert:
+    that:
+      - ntp_mode in ['server', 'client']
+    fail_msg: "ntp_mode must be either server or client"
+
+
+# ------------------------------------------------------------
+# 2. Chrony 패키지 확인
+# ------------------------------------------------------------
+
+- name: Gather installed package facts
+  ansible.builtin.package_facts:
+    manager: auto
+
+
+# ------------------------------------------------------------
+# 3. Chrony 설치
+# ------------------------------------------------------------
+
+- name: Install chrony when missing
+  ansible.builtin.dnf:
+    name: chrony
+    state: present
+  when: "'chrony' not in ansible_facts.packages"
+
+
+# ------------------------------------------------------------
+# 4. Chrony 설정 배포
+# ------------------------------------------------------------
+
+- name: Deploy chrony configuration
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  notify: Restart chronyd
+
+
+# ------------------------------------------------------------
+# 5. 변경된 경우 chronyd 재시작
+# ------------------------------------------------------------
+
+- name: Apply chronyd restart before verification
+  ansible.builtin.meta: flush_handlers
+
+
+# ------------------------------------------------------------
+# 6. chronyd 서비스 활성화
+# ------------------------------------------------------------
+
+- name: Enable and start chronyd
+  ansible.builtin.service:
+    name: chronyd
+    enabled: true
+    state: started
+
+
+# ------------------------------------------------------------
+# 7. chronyd 서비스 상태 확인
+# 조회 전용이므로 Check Mode에서도 실제 실행
+# ------------------------------------------------------------
+
+- name: Check chronyd service
+  ansible.builtin.command:
+    cmd: systemctl is-active chronyd
+  register: chronyd_status
+  changed_when: false
+  check_mode: false
+  failed_when: chronyd_status.stdout | trim != "active"
+
+
+- name: Show chronyd status
+  ansible.builtin.debug:
+    msg: "{{ inventory_hostname }} chronyd is {{ chronyd_status.stdout }}"
+
+
+# ============================================================
+# NTP Synchronization
+# ============================================================
+
+# ------------------------------------------------------------
+# 8. NTP Source Online
+#
+# 실제 chronyd 런타임 상태에 영향을 줄 수 있으므로
+# Check Mode에서는 실행하지 않음
+# ------------------------------------------------------------
+
+- name: Mark NTP sources online
+  ansible.builtin.command:
+    cmd: chronyc online
+  changed_when: false
+  when: not ansible_check_mode
+
+
+# ------------------------------------------------------------
+# 9. NTP Burst
+#
+# 실제 측정을 발생시키는 명령이므로
+# Check Mode에서는 실행하지 않음
+# ------------------------------------------------------------
+
+- name: Burst NTP measurements
+  ansible.builtin.command:
+    cmd: chronyc burst 4/4
+  changed_when: false
+  when: not ansible_check_mode
+
+
+# ------------------------------------------------------------
+# 10. NTP 동기화 상태 확인
+#
+# chronyc tracking은 조회 전용이므로
+# Check Mode에서도 실제 실행
+# ------------------------------------------------------------
+
+- name: Wait for NTP synchronization
+  ansible.builtin.command:
+    cmd: chronyc tracking
+  register: ntp_tracking
+  changed_when: false
+  check_mode: false
+  retries: 30
+  delay: 2
+  until: >
+    ntp_tracking.stdout
+    is search('(?m)^Leap status\\s*:\\s*Normal\\s*$')
+
+
+# ------------------------------------------------------------
+# 11. 선택된 NTP Source 확인
+# ------------------------------------------------------------
+
+- name: Check selected NTP source
+  ansible.builtin.command:
+    cmd: chronyc -n sources
+  register: ntp_sources
+  changed_when: false
+  check_mode: false
+
+
+# ------------------------------------------------------------
+# 12. Infra NTP Server 검증
+# Infra가 외부 Upstream과 동기화 중인지 확인
+# ------------------------------------------------------------
+
+- name: Verify Infra NTP server has an active upstream source
+  ansible.builtin.assert:
+    that:
+      - ntp_sources.stdout is search('(?m)^\\^\\*')
+    fail_msg: "Infra does not have an active upstream NTP source"
+    success_msg: "Infra is synchronized with its upstream NTP source"
+  when: ntp_mode == 'server'
+
+
+# ------------------------------------------------------------
+# 13. NTP Client 검증
+# 각 VM이 Infra 192.168.14.62를 선택했는지 확인
+# ------------------------------------------------------------
+
+- name: Verify client uses Infra as selected NTP source
+  ansible.builtin.assert:
+    that:
+      - ntp_sources.stdout is search('(?m)^\\^\\*\\s+192\\.168\\.14\\.62\\s+')
+    fail_msg: "{{ inventory_hostname }} is not synchronized with Infra 192.168.14.62"
+    success_msg: "{{ inventory_hostname }} is synchronized with Infra 192.168.14.62"
+  when: ntp_mode == 'client'
+
+
+# ------------------------------------------------------------
+# 14. 최종 결과 출력
+# ------------------------------------------------------------
+
+- name: Show NTP validation summary
+  ansible.builtin.debug:
+    msg:
+      - "========================================"
+      - " NTP VALIDATION SUMMARY"
+      - "========================================"
+      - "Host          : {{ inventory_hostname }}"
+      - "Mode          : {{ ntp_mode }}"
+      - "chronyd       : {{ chronyd_status.stdout | trim }}"
+      - "Leap Status   : {{ 'Normal' if ntp_tracking.stdout is search('(?m)^Leap status\\s*:\\s*Normal\\s*$') else 'NOT SYNCED' }}"
+      - "Selected NTP  : {{ 'Upstream Source' if ntp_mode == 'server' else '192.168.14.62' }}"
+      - "Result        : PASSED"
+      - "========================================"

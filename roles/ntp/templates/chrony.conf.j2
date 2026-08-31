@@ -1,0 +1,25 @@
+# Managed by Ansible - InfraReady Central NTP
+
+{% if ntp_mode == 'server' %}
+server {{ ntp_upstream }} iburst
+
+allow {{ ntp_client_network }}
+bindaddress {{ ntp_server_ip }}
+{% else %}
+server {{ ntp_server_ip }} iburst prefer
+
+# Client-only mode
+port 0
+{% endif %}
+
+driftfile /var/lib/chrony/drift
+
+{% if ntp_allow_initial_step %}
+makestep 1.0 3
+{% endif %}
+
+rtcsync
+
+keyfile /etc/chrony.keys
+leapsectz right/UTC
+logdir /var/log/chrony

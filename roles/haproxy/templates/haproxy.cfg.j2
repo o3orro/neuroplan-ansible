@@ -30,3 +30,22 @@ backend k8s_api_backend
     server cp1 192.168.34.31:6443 check
     server cp2 192.168.34.32:6443 check
     server cp3 192.168.34.33:6443 check
+
+# ============================================================
+# NeuroPlan Service VIP -> NGINX Gateway Fabric NodePort
+# User HTTPS :443 -> Worker :30443
+# ============================================================
+
+frontend service_https
+    bind 192.168.24.100:443
+    mode tcp
+    option tcplog
+    default_backend ngf_https_backend
+
+backend ngf_https_backend
+    mode tcp
+    balance roundrobin
+    option tcp-check
+    server worker1 192.168.34.41:30443 check
+    server worker2 192.168.34.42:30443 check
+    server worker3 192.168.34.43:30443 check

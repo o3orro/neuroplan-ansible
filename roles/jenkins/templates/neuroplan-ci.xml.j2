@@ -6,7 +6,16 @@
 
   <keepDependencies>false</keepDependencies>
 
-  <properties/>
+  <properties>
+    <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+      <triggers>
+        <hudson.triggers.SCMTrigger>
+          <spec>H/2 * * * *</spec>
+          <ignorePostCommitHooks>false</ignorePostCommitHooks>
+        </hudson.triggers.SCMTrigger>
+      </triggers>
+    </org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
+  </properties>
 
   <definition class="org.jenkinsci.plugins.workflow.cps.CpsScmFlowDefinition"
               plugin="workflow-cps">
@@ -18,37 +27,26 @@
 
       <userRemoteConfigs>
         <hudson.plugins.git.UserRemoteConfig>
-          <url>https://github.com/{{ github_owner }}/{{ github_app_repository }}.git</url>
+          <url>https://github.com/o3orro/neuroplan-app.git</url>
         </hudson.plugins.git.UserRemoteConfig>
       </userRemoteConfigs>
 
       <branches>
         <hudson.plugins.git.BranchSpec>
-          <name>*/{{ jenkins_git_branch }}</name>
+          <name>*/main</name>
         </hudson.plugins.git.BranchSpec>
       </branches>
 
       <doGenerateSubmoduleConfigurations>false</doGenerateSubmoduleConfigurations>
-
       <submoduleCfg class="empty-list"/>
-
       <extensions/>
 
     </scm>
 
-    <scriptPath>{{ jenkins_pipeline_script_path }}</scriptPath>
-
+    <scriptPath>Jenkinsfile</scriptPath>
     <lightweight>true</lightweight>
 
   </definition>
 
-  <triggers>
-    <hudson.triggers.SCMTrigger>
-      <spec>{{ jenkins_poll_scm }}</spec>
-      <ignorePostCommitHooks>false</ignorePostCommitHooks>
-    </hudson.triggers.SCMTrigger>
-  </triggers>
-
   <disabled>false</disabled>
-
 </flow-definition>

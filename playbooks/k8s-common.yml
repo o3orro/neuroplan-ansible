@@ -1,0 +1,8 @@
+---
+- name: Configure Kubernetes Node Prerequisites
+  hosts: k8s_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - k8s_common

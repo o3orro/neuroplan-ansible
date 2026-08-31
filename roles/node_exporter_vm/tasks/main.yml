@@ -1,0 +1,78 @@
+---
+# ============================================================
+# InfraReady - Node Exporter for non-Kubernetes VMs
+# ============================================================
+
+- name: Download Node Exporter on Ansible control node
+  ansible.builtin.get_url:
+    url: "{{ node_exporter_download_url }}"
+    dest: "/tmp/{{ node_exporter_archive }}"
+    checksum: "{{ node_exporter_checksum }}"
+    mode: "0644"
+  delegate_to: localhost
+  run_once: true
+  become: false
+
+- name: Create node_exporter system user
+  ansible.builtin.user:
+    name: node_exporter
+    shell: /sbin/nologin
+    system: true
+    create_home: false
+    password_lock: true      
+
+- name: Extract Node Exporter
+  ansible.builtin.unarchive:
+    src: "/tmp/{{ node_exporter_archive }}"
+    dest: /tmp
+    remote_src: false
+    creates: "/tmp/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}/node_exporter"
+
+- name: Install Node Exporter binary
+  ansible.builtin.copy:
+    src: "/tmp/node_exporter-{{ node_exporter_version }}.linux-{{ node_exporter_arch }}/node_exporter"
+    dest: /usr/local/bin/node_exporter
+    remote_src: true
+    owner: root
+    group: root
+    mode: "0755"
+  notify: Restart node_exporter
+
+- name: Deploy Node Exporter systemd service
+  ansible.builtin.template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart node_exporter
+
+- name: Enable and start Node Exporter
+  ansible.builtin.systemd_service:
+    name: node_exporter
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Apply pending Node Exporter changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Verify Node Exporter service
+  ansible.builtin.command:
+    cmd: systemctl is-active node_exporter
+  register: node_exporter_service
+  changed_when: false
+  failed_when: node_exporter_service.stdout != "active"
+
+- name: Verify Node Exporter metrics endpoint
+  ansible.builtin.uri:
+    url: http://127.0.0.1:9100/metrics
+    method: GET
+    status_code: 200
+    return_content: false
+
+- name: Display Node Exporter status
+  ansible.builtin.debug:
+    msg:
+      - "Node Exporter: {{ node_exporter_service.stdout }}"
+      - "Metrics: http://127.0.0.1:9100/metrics"

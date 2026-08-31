@@ -1,0 +1,143 @@
+---
+# ============================================================
+# NFS Health Check
+# - 기존 NFS 설정 변경 없음
+# - 서비스 / exports / 공유 디렉터리 상태만 점검
+# ============================================================
+
+- name: Check NFS Health
+  hosts: nfs_nodes
+  become: true
+  gather_facts: false
+
+  vars:
+    nfs_export_paths:
+      - /backup/etcd
+      - /backup/config
+      - /backup/mariadb
+
+  tasks:
+
+    # --------------------------------------------------------
+    # NFS Service
+    # --------------------------------------------------------
+
+    - name: Check NFS server service
+      ansible.builtin.command:
+        cmd: systemctl is-active nfs-server
+      register: nfs_service_status
+      changed_when: false
+      failed_when: false
+
+    - name: Check NFS server enabled status
+      ansible.builtin.command:
+        cmd: systemctl is-enabled nfs-server
+      register: nfs_enabled_status
+      changed_when: false
+      failed_when: false
+
+    # --------------------------------------------------------
+    # /etc/exports
+    # --------------------------------------------------------
+
+    - name: Check /etc/exports exists
+      ansible.builtin.stat:
+        path: /etc/exports
+      register: exports_file
+
+    - name: Read active NFS exports
+      ansible.builtin.command:
+        cmd: exportfs -v
+      register: exportfs_status
+      changed_when: false
+      failed_when: false
+
+    # --------------------------------------------------------
+    # Export Directories
+    # --------------------------------------------------------
+
+    - name: Check NFS export directories
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ nfs_export_paths }}"
+      register: export_directories
+
+    - name: Show export directory status
+      ansible.builtin.debug:
+        msg: >-
+          {{ item.item }}:
+          {{ 'EXISTS' if item.stat.exists and item.stat.isdir else 'MISSING' }}
+      loop: "{{ export_directories.results }}"
+
+    # --------------------------------------------------------
+    # NFS Listening Ports
+    # --------------------------------------------------------
+
+    - name: Check NFS port 2049
+      ansible.builtin.shell:
+        cmd: >
+          ss -lnt |
+          awk '{print $4}' |
+          grep -Eq '(^|:)2049$'
+      register: nfs_port_status
+      changed_when: false
+      failed_when: false
+
+    # --------------------------------------------------------
+    # Result
+    # --------------------------------------------------------
+
+    - name: Show NFS health result
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "NFS service: {{ nfs_service_status.stdout | default('unknown') }}"
+          - "NFS enabled: {{ nfs_enabled_status.stdout | default('unknown') }}"
+          - "/etc/exports: {{ 'EXISTS' if exports_file.stat.exists else 'MISSING' }}"
+          - "Port 2049: {{ 'LISTENING' if nfs_port_status.rc == 0 else 'NOT LISTENING' }}"
+
+    - name: Show active exports
+      ansible.builtin.debug:
+        var: exportfs_status.stdout_lines
+
+    # --------------------------------------------------------
+    # Validation
+    # --------------------------------------------------------
+
+    - name: Validate NFS essential status
+      ansible.builtin.assert:
+        that:
+          - nfs_service_status.stdout == "active"
+          - nfs_enabled_status.stdout == "enabled"
+          - exports_file.stat.exists
+          - exportfs_status.rc == 0
+          - nfs_port_status.rc == 0
+        success_msg: "{{ inventory_hostname }} NFS health check PASSED"
+        fail_msg: "{{ inventory_hostname }} NFS health check FAILED"
+
+    - name: Validate NFS export directories
+      ansible.builtin.assert:
+        that:
+          - item.stat.exists
+          - item.stat.isdir
+        success_msg: "{{ item.item }} directory check PASSED"
+        fail_msg: "{{ item.item }} directory check FAILED"
+      loop: "{{ export_directories.results }}"
+
+    - name: Show NFS final summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - " NFS HEALTH CHECK SUMMARY"
+          - "========================================"
+          - "Host              : {{ inventory_hostname }}"
+          - "NFS Service       : {{ nfs_service_status.stdout }}"
+          - "NFS Enabled       : {{ nfs_enabled_status.stdout }}"
+          - "/etc/exports      : {{ 'OK' if exports_file.stat.exists else 'FAILED' }}"
+          - "TCP 2049          : {{ 'LISTENING' if nfs_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "/backup/etcd      : {{ 'OK' if export_directories.results[0].stat.exists else 'FAILED' }}"
+          - "/backup/config    : {{ 'OK' if export_directories.results[1].stat.exists else 'FAILED' }}"
+          - "/backup/mariadb   : {{ 'OK' if export_directories.results[2].stat.exists else 'FAILED' }}"
+          - "========================================"
+          - "Overall           : PASSED"
+          - "========================================"

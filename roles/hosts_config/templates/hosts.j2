@@ -1,0 +1,91 @@
+# ============================================================
+# 4조(뉴로플랜) - /etc/hosts
+# Management Network : 192.168.14.0/24
+# Domain : nplan.local
+# ============================================================
+
+# ---- Localhost ----
+127.0.0.1 localhost localhost.localdomain
+::1       localhost localhost.localdomain
+
+# ---- Infra ----
+192.168.14.62 infra.nplan.local infra
+
+# ---- LB (HAProxy + Keepalived) ----
+192.168.14.11 lb1.nplan.local lb1
+192.168.14.12 lb2.nplan.local lb2
+
+# ---- Control Plane ----
+192.168.14.31 cp1.nplan.local cp1
+192.168.14.32 cp2.nplan.local cp2
+192.168.14.33 cp3.nplan.local cp3
+
+# ---- Worker ----
+192.168.14.41 worker1.nplan.local worker1
+192.168.14.42 worker2.nplan.local worker2
+192.168.14.43 worker3.nplan.local worker3
+
+# ---- DevOps ----
+192.168.14.21 devops.nplan.local devops
+
+# ---- DB / NFS ----
+192.168.14.51 db-primary.nplan.local db-primary
+192.168.14.52 db-replica.nplan.local db-replica
+192.168.14.61 nfs.nplan.local nfs
+
+
+# ------------------------------------------------------------
+# DMZ Network : 192.168.24.0/24
+# 외부 Client -> LB 진입용
+# ------------------------------------------------------------
+
+192.168.24.11 lb1.dmz.nplan.local lb1-dmz
+192.168.24.12 lb2.dmz.nplan.local lb2-dmz
+
+
+# ------------------------------------------------------------
+# Internal Kubernetes Network : 192.168.34.0/24
+# ------------------------------------------------------------
+
+192.168.34.11 lb1.k8s.nplan.local lb1-k8s
+192.168.34.12 lb2.k8s.nplan.local lb2-k8s
+
+192.168.34.21 devops.k8s.nplan.local devops-k8s
+
+192.168.34.31 cp1.k8s.nplan.local cp1-k8s
+192.168.34.32 cp2.k8s.nplan.local cp2-k8s
+192.168.34.33 cp3.k8s.nplan.local cp3-k8s
+
+192.168.34.41 worker1.k8s.nplan.local worker1-k8s
+192.168.34.42 worker2.k8s.nplan.local worker2-k8s
+192.168.34.43 worker3.k8s.nplan.local worker3-k8s
+
+192.168.34.62 infra.k8s.nplan.local infra-k8s
+
+192.168.34.100 api.k8s.nplan.local
+
+
+# ------------------------------------------------------------
+# Data Network : 192.168.44.0/24
+# ------------------------------------------------------------
+
+192.168.44.41 worker1.data.nplan.local worker1-data
+192.168.44.42 worker2.data.nplan.local worker2-data
+192.168.44.43 worker3.data.nplan.local worker3-data
+
+192.168.44.51 db-primary.data.nplan.local db-primary-data
+192.168.44.52 db-replica.data.nplan.local db-replica-data
+
+192.168.44.61 nfs.data.nplan.local nfs-data
+192.168.44.62 infra.data.nplan.local infra-data
+
+# Management
+192.168.14.71 dr-k3s.nplan.local dr-k3s
+192.168.14.72 minio-s3.nplan.local minio-s3
+
+# Internal / K8s
+192.168.34.71 dr-k3s.k8s.nplan.local dr-k3s-k8s
+
+# Data
+192.168.44.72 minio-s3.data.nplan.local minio-s3-data
+

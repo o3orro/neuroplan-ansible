@@ -1,0 +1,8 @@
+---
+- name: Apply common configuration
+  hosts: project_nodes
+  become: true
+  gather_facts: true
+
+  roles:
+    - common

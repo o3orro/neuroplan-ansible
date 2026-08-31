@@ -1,0 +1,63 @@
+---
+# ============================================================
+# InfraReady - Kubernetes Common Configuration
+# Target: Control Plane + Worker Nodes
+# ============================================================
+
+# ------------------------------------------------------------
+# 1. SELinux -> Permissive
+# ------------------------------------------------------------
+
+- name: Set SELinux to permissive in config
+  ansible.builtin.lineinfile:
+    path: /etc/selinux/config
+    regexp: '^SELINUX='
+    line: 'SELINUX=permissive'
+    backup: true
+
+- name: Get current SELinux mode
+  ansible.builtin.command:
+    cmd: getenforce
+  register: selinux_current_mode
+  changed_when: false
+
+- name: Set SELinux to permissive immediately
+  ansible.builtin.command:
+    cmd: setenforce 0
+  when: selinux_current_mode.stdout == "Enforcing"
+
+
+# ------------------------------------------------------------
+# 2. firewalld -> Disabled
+# ------------------------------------------------------------
+
+- name: Stop and disable firewalld
+  ansible.builtin.systemd_service:
+    name: firewalld
+    state: stopped
+    enabled: false
+
+
+# ------------------------------------------------------------
+# 3. Validation
+# ------------------------------------------------------------
+
+- name: Check SELinux mode
+  ansible.builtin.command:
+    cmd: getenforce
+  register: selinux_status
+  changed_when: false
+  failed_when: selinux_status.stdout != "Permissive"
+
+- name: Check firewalld state
+  ansible.builtin.command:
+    cmd: systemctl is-active firewalld
+  register: firewalld_status
+  changed_when: false
+  failed_when: firewalld_status.stdout != "inactive"
+
+- name: Display Kubernetes node security configuration
+  ansible.builtin.debug:
+    msg:
+      - "SELinux: {{ selinux_status.stdout }}"
+      - "firewalld: {{ firewalld_status.stdout }}"

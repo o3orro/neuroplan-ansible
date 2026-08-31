@@ -1,2 +1,4 @@
 ---
-# defaults file for roles/dns_client
+dns_server_ip: "192.168.14.62"
+dns_search_domain: "nplan.local"
+dns_mgmt_prefix: "192.168.14."

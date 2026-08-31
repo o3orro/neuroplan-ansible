@@ -1,0 +1,9 @@
+---
+- name: Install pinned MinIO Community on the PC6 staging VM
+  hosts: minio_nodes
+  become: true
+  gather_facts: true
+  force_handlers: true
+
+  roles:
+    - minio

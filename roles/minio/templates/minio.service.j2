@@ -1,0 +1,17 @@
+[Unit]
+Description=MinIO Community Object Storage
+Wants=network-online.target
+After=network-online.target
+AssertFileIsExecutable={{ minio_binary_path }}
+
+[Service]
+User={{ minio_service_user }}
+Group={{ minio_service_group }}
+EnvironmentFile=/etc/default/minio
+ExecStart={{ minio_binary_path }} server $MINIO_OPTS $MINIO_VOLUMES
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

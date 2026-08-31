@@ -1,8 +1,0 @@
----
-- name: Configure DNS Clients
-  hosts: "managed_servers:devops_nodes:!infra_nodes"
-  become: true
-  gather_facts: true
-
-  roles:
-    - dns_client

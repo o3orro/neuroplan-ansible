@@ -1,0 +1,69 @@
+---
+# ============================================================
+# InfraReady - Kubernetes Node Exporter DaemonSet
+# ============================================================
+
+- name: Deploy Node Exporter DaemonSet manifest
+  ansible.builtin.template:
+    src: node-exporter-daemonset.yaml.j2
+    dest: /tmp/node-exporter-daemonset.yaml
+    mode: "0644"
+  become: false
+
+
+- name: Apply Node Exporter DaemonSet
+  ansible.builtin.command:
+    cmd: >
+      kubectl
+      --kubeconfig=/home/devops/.kube/config
+      apply
+      -f /tmp/node-exporter-daemonset.yaml
+  register: node_exporter_k8s_apply
+  changed_when: >
+    'created' in node_exporter_k8s_apply.stdout or
+    'configured' in node_exporter_k8s_apply.stdout
+  become: false
+
+
+- name: Wait for Node Exporter DaemonSet
+  ansible.builtin.command:
+    cmd: >
+      kubectl
+      --kubeconfig=/home/devops/.kube/config
+      rollout status
+      daemonset/node-exporter
+      -n monitoring
+      --timeout=300s
+  changed_when: false
+  become: false
+
+
+- name: Get Node Exporter DaemonSet status
+  ansible.builtin.command:
+    cmd: >
+      kubectl
+      --kubeconfig=/home/devops/.kube/config
+      get daemonset node-exporter
+      -n monitoring
+  register: node_exporter_k8s_status
+  changed_when: false
+  become: false
+
+
+- name: Get Node Exporter Pods
+  ansible.builtin.command:
+    cmd: >
+      kubectl
+      --kubeconfig=/home/devops/.kube/config
+      get pods
+      -n monitoring
+      -l app=node-exporter
+      -o wide
+  register: node_exporter_k8s_pods
+  changed_when: false
+  become: false
+
+
+- name: Display Node Exporter Kubernetes status
+  ansible.builtin.debug:
+    var: node_exporter_k8s_pods.stdout_lines

@@ -1,10 +1,29 @@
 ---
+# ============================================================
+# InfraReady - Argo CD
+# - 일반 실행: 설치/업그레이드/Application 적용
+# - Check Mode: 상태 조회 및 변경 필요 여부만 검사
+# ============================================================
+
+
+# ------------------------------------------------------------
+# 1. Helm 확인
+# 조회 전용
+# ------------------------------------------------------------
+
 - name: Verify Helm binary
   ansible.builtin.command:
     cmd: /usr/local/bin/helm version --short
   register: helm_check
   changed_when: false
+  check_mode: false
   become: false
+
+
+# ------------------------------------------------------------
+# 2. Helm Repository 등록
+# 실제 변경 작업이므로 Check Mode에서는 실행하지 않음
+# ------------------------------------------------------------
 
 - name: Add or update Argo Helm repository
   ansible.builtin.command:
@@ -14,13 +33,116 @@
       {{ argocd_repo_url }}
       --force-update
   changed_when: false
+  when: not ansible_check_mode
   become: false
+
+
+# ------------------------------------------------------------
+# 3. 현재 Argo CD Helm Release 조회
+# 조회 전용
+# ------------------------------------------------------------
+
+- name: Check installed Argo CD Helm release
+  ansible.builtin.command:
+    cmd: >
+      /usr/local/bin/helm list
+      --namespace {{ argocd_namespace }}
+      --filter '^{{ argocd_release_name }}$'
+      --output json
+  environment:
+    KUBECONFIG: "{{ argocd_kubeconfig }}"
+  register: argocd_release_check
+  changed_when: false
+  check_mode: false
+  become: false
+
+
+# ------------------------------------------------------------
+# 4. Helm 조회 결과 파싱
+# ------------------------------------------------------------
+
+- name: Parse installed Argo CD release
+  ansible.builtin.set_fact:
+    argocd_release_info: >-
+      {{
+        (argocd_release_check.stdout | trim | default('[]', true))
+        | from_json
+      }}
+
+
+# ------------------------------------------------------------
+# 5. 설치 여부 확인
+# ------------------------------------------------------------
+
+- name: Determine Argo CD installation status
+  ansible.builtin.set_fact:
+    argocd_release_installed: "{{ argocd_release_info | length > 0 }}"
+
+
+# ------------------------------------------------------------
+# 6. 설치/업그레이드 필요 여부 확인
+# ------------------------------------------------------------
+
+- name: Determine whether Argo CD requires change
+  ansible.builtin.set_fact:
+    argocd_release_needs_change: >-
+      {{
+        (argocd_release_info | length == 0)
+        or
+        (
+          (argocd_release_info[0].chart | default(''))
+          != ('argo-cd-' ~ argocd_chart_version)
+        )
+      }}
+
+
+# ------------------------------------------------------------
+# 7. Check Mode에서 Helm 상태 표시
+# ------------------------------------------------------------
+
+- name: Show Argo CD Helm validation result
+  ansible.builtin.debug:
+    msg:
+      - "========================================"
+      - " ARGO CD HELM CHECK"
+      - "========================================"
+      - "Installed       : {{ argocd_release_installed }}"
+      - "Desired Version : {{ argocd_chart_version }}"
+      - >-
+        Current Chart   :
+        {{
+          argocd_release_info[0].chart
+          if argocd_release_installed
+          else 'NOT INSTALLED'
+        }}
+      - >-
+        Action          :
+        {{
+          'INSTALL / UPGRADE REQUIRED'
+          if argocd_release_needs_change
+          else 'NO CHANGE'
+        }}
+      - "========================================"
+  when: ansible_check_mode
+
+
+# ------------------------------------------------------------
+# 8. Helm Repository 갱신
+# 실제 변경 작업
+# ------------------------------------------------------------
 
 - name: Update Helm repositories
   ansible.builtin.command:
     cmd: /usr/local/bin/helm repo update
   changed_when: false
+  when: not ansible_check_mode
   become: false
+
+
+# ------------------------------------------------------------
+# 9. Argo CD 설치 또는 업그레이드
+# Check Mode에서는 절대 실행하지 않음
+# ------------------------------------------------------------
 
 - name: Install or upgrade Argo CD
   ansible.builtin.command:
@@ -36,10 +158,22 @@
   environment:
     KUBECONFIG: "{{ argocd_kubeconfig }}"
   register: argocd_helm_result
-  changed_when: >
-    'has been upgraded' in argocd_helm_result.stdout or
-    'has been installed' in argocd_helm_result.stdout
+  when:
+    - not ansible_check_mode
+    - argocd_release_needs_change
+  changed_when: true
   become: false
+
+
+# ------------------------------------------------------------
+# 10. Argo CD Deployment 상태 확인
+#
+# Check Mode:
+#   기존 Argo CD가 설치된 경우만 조회
+#
+# 일반 실행:
+#   설치/업그레이드 이후 상태 확인
+# ------------------------------------------------------------
 
 - name: Wait for Argo CD deployments
   ansible.builtin.command:
@@ -58,7 +192,15 @@
     - argocd-repo-server
     - argocd-server
   changed_when: false
+  check_mode: false
+  when:
+    - not ansible_check_mode or argocd_release_installed
   become: false
+
+
+# ------------------------------------------------------------
+# 11. Application Controller 상태 확인
+# ------------------------------------------------------------
 
 - name: Wait for Argo CD application controller
   ansible.builtin.command:
@@ -70,7 +212,15 @@
       -n {{ argocd_namespace }}
       --timeout=600s
   changed_when: false
+  check_mode: false
+  when:
+    - not ansible_check_mode or argocd_release_installed
   become: false
+
+
+# ------------------------------------------------------------
+# 12. Argo CD Pod 조회
+# ------------------------------------------------------------
 
 - name: Show Argo CD pods
   ansible.builtin.command:
@@ -82,18 +232,56 @@
       -o wide
   register: argocd_pods
   changed_when: false
+  check_mode: false
+  when:
+    - not ansible_check_mode or argocd_release_installed
   become: false
+
 
 - name: Display Argo CD pods
   ansible.builtin.debug:
     var: argocd_pods.stdout_lines
+  when:
+    - argocd_pods is defined
+    - argocd_pods.stdout_lines is defined
+
+
+# ------------------------------------------------------------
+# 13. Check Mode에서 Application Template 렌더링 검증
+#
+# 파일을 생성하지 않고 Jinja2 변수/문법만 확인
+# ------------------------------------------------------------
+
+- name: Validate Argo CD Application template
+  ansible.builtin.set_fact:
+    argocd_application_manifest_check: >-
+      {{
+        lookup(
+          'ansible.builtin.template',
+          'application.yaml.j2'
+        )
+      }}
+  when: ansible_check_mode
+
+
+# ------------------------------------------------------------
+# 14. Application Manifest 생성
+# 실제 변경 작업
+# ------------------------------------------------------------
 
 - name: Create Argo CD Application manifest
   ansible.builtin.template:
     src: application.yaml.j2
     dest: /tmp/neuroplan-argocd-application.yaml
     mode: "0644"
+  when: not ansible_check_mode
   become: false
+
+
+# ------------------------------------------------------------
+# 15. Argo CD Application 적용
+# 실제 Kubernetes 변경 작업
+# ------------------------------------------------------------
 
 - name: Apply Argo CD Application
   ansible.builtin.command:
@@ -106,7 +294,14 @@
   changed_when: >
     'created' in argocd_application_apply.stdout or
     'configured' in argocd_application_apply.stdout
+  when: not ansible_check_mode
   become: false
+
+
+# ------------------------------------------------------------
+# 16. Argo CD Application 상태 조회
+# 조회 전용
+# ------------------------------------------------------------
 
 - name: Show Argo CD Application status
   ansible.builtin.command:
@@ -118,8 +313,49 @@
       -n {{ argocd_namespace }}
   register: argocd_application_status
   changed_when: false
+  check_mode: false
+  failed_when: >
+    (not ansible_check_mode)
+    and
+    (argocd_application_status.rc != 0)
+  when:
+    - not ansible_check_mode or argocd_release_installed
   become: false
+
 
 - name: Display Argo CD Application status
   ansible.builtin.debug:
     var: argocd_application_status.stdout_lines
+  when:
+    - argocd_application_status is defined
+    - argocd_application_status.stdout_lines is defined
+
+
+# ------------------------------------------------------------
+# 17. 최종 요약
+# ------------------------------------------------------------
+
+- name: Show Argo CD final summary
+  ansible.builtin.debug:
+    msg:
+      - "========================================"
+      - " ARGO CD VALIDATION SUMMARY"
+      - "========================================"
+      - "Helm              : {{ helm_check.stdout | default('UNKNOWN') }}"
+      - "Release Installed : {{ argocd_release_installed }}"
+      - "Desired Version   : {{ argocd_chart_version }}"
+      - >-
+        Current Chart     :
+        {{
+          argocd_release_info[0].chart
+          if argocd_release_installed
+          else 'NOT INSTALLED'
+        }}
+      - >-
+        Release Status    :
+        {{
+          'CHANGE REQUIRED'
+          if argocd_release_needs_change
+          else 'SYNCHRONIZED'
+        }}
+      - "========================================"

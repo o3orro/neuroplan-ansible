@@ -1,0 +1,20 @@
+---
+minio_release: "RELEASE.2025-10-15T17-29-55Z"
+
+go_version: "1.24.8"
+go_archive: "go1.24.8.linux-amd64.tar.gz"
+go_archive_sha256: "6842c516ca66c89d648a7f1dbe28e28c47b61b59f8f06633eb2ceb1188e9251d"
+
+go_download_url: "https://go.dev/dl/{{ go_archive }}"
+go_install_dir: "/opt/go{{ go_version }}"
+
+minio_build_dir: "/var/tmp/minio-build-{{ minio_release }}"
+minio_binary_path: "/usr/local/bin/minio"
+
+minio_data_dir: "/srv/minio-data"
+
+minio_service_user: "minio-user"
+minio_service_group: "minio-user"
+
+minio_api_port: 9000
+minio_console_port: 9001

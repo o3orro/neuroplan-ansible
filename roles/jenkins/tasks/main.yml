@@ -9,6 +9,7 @@
       - fontconfig
     state: present
 
+
 - name: Import Jenkins repository GPG key
   ansible.builtin.rpm_key:
     key: "{{ jenkins_key_url }}"
@@ -78,22 +79,38 @@
 # Jenkins Plugins
 # =========================================================
 
-- name: Install Jenkins plugins
+# Check Mode에서도 실제 파일 존재 여부는 읽기만 수행한다.
+- name: Check installed Jenkins plugins
+  ansible.builtin.shell: |
+    test -f "/var/lib/jenkins/plugins/{{ item }}.jpi" ||
+    test -f "/var/lib/jenkins/plugins/{{ item }}.hpi"
+  loop: "{{ jenkins_plugins }}"
+  register: jenkins_plugin_check
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+
+# 실제로 없는 플러그인만 설치한다.
+# Check Mode에서는 설치하지 않는다.
+- name: Install missing Jenkins plugins
   community.general.jenkins_plugin:
-    name: "{{ item }}"
+    name: "{{ item.item }}"
     state: present
     with_dependencies: true
-
     jenkins_home: /var/lib/jenkins
     owner: jenkins
     group: jenkins
-
     url: "{{ jenkins_api_url }}"
     url_username: "{{ jenkins_admin_user }}"
     url_password: "{{ jenkins_api_token }}"
     force_basic_auth: true
-
-  loop: "{{ jenkins_plugins }}"
+  loop: "{{ jenkins_plugin_check.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when:
+    - item.rc != 0
+    - not ansible_check_mode
   notify: Restart Jenkins
 
 
@@ -143,8 +160,7 @@
   register: jenkins_credentials_result
 
   changed_when: >
-    'CHANGED' in
-    (jenkins_credentials_result.output | default(''))
+    (jenkins_credentials_result.output | default('') | trim) == 'CHANGED'
 
   no_log: true
   become: false
@@ -167,10 +183,24 @@
     cmd: "firewall-cmd --permanent --add-port={{ jenkins_port }}/tcp"
   when: jenkins_firewall_check.rc != 0
   notify: Reload firewalld
-    
+
+
 # =========================================================
 # Jenkins Pipeline Job
 # =========================================================
+
+# CLI에서 시작된 Check Mode 값을 미리 보존한다.
+# 이후 읽기 전용 Task에서 check_mode: false를 사용해도
+# Job 생성/업데이트 안전장치에는 이 값을 사용한다.
+- name: Capture Jenkins execution mode
+  ansible.builtin.set_fact:
+    jenkins_check_only: "{{ ansible_check_mode | bool }}"
+  changed_when: false
+
+
+# ---------------------------------------------------------
+# 현재 Jenkins Job 조회
+# ---------------------------------------------------------
 
 - name: Check NeuroPlan Jenkins pipeline job
   ansible.builtin.uri:
@@ -184,9 +214,152 @@
       - 200
       - 404
   register: jenkins_job_check
+  changed_when: false
+  check_mode: false
   no_log: true
   become: false
 
+
+# ---------------------------------------------------------
+# Ansible 템플릿 렌더링
+# ---------------------------------------------------------
+
+- name: Render desired NeuroPlan Jenkins pipeline configuration
+  ansible.builtin.set_fact:
+    jenkins_desired_config_raw: >-
+      {{
+        lookup(
+          'ansible.builtin.template',
+          'neuroplan-ci.xml.j2'
+        )
+      }}
+  no_log: true
+
+
+# ---------------------------------------------------------
+# 원하는 설정 XML 정규화
+#
+# Jenkins는 저장 시:
+#   plugin="git@5.10.1"
+# 같은 버전 문자열을 자동으로 붙이고
+# XML 공백/들여쓰기 형식도 변경할 수 있다.
+#
+# 실제 설정값만 비교하기 위해 XML Parser를 사용한다.
+# ---------------------------------------------------------
+
+- name: Normalize desired NeuroPlan Jenkins pipeline configuration
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import sys
+        import xml.etree.ElementTree as ET
+
+        xml_data = sys.stdin.read()
+        root = ET.fromstring(xml_data)
+
+        for elem in root.iter():
+            plugin = elem.attrib.get("plugin")
+
+            if plugin and "@" in plugin:
+                elem.attrib["plugin"] = plugin.split("@", 1)[0]
+
+            if elem.text is not None and not elem.text.strip():
+                elem.text = None
+
+            if elem.tail is not None and not elem.tail.strip():
+                elem.tail = None
+
+        sys.stdout.write(
+            ET.tostring(
+                root,
+                encoding="unicode",
+                short_empty_elements=True
+            )
+        )
+    stdin: "{{ jenkins_desired_config_raw }}"
+  register: jenkins_desired_config_normalized
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+
+# ---------------------------------------------------------
+# 현재 Jenkins Job XML 정규화
+# ---------------------------------------------------------
+
+- name: Normalize current NeuroPlan Jenkins pipeline configuration
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -c
+      - |
+        import sys
+        import xml.etree.ElementTree as ET
+
+        xml_data = sys.stdin.read()
+        root = ET.fromstring(xml_data)
+
+        for elem in root.iter():
+            plugin = elem.attrib.get("plugin")
+
+            if plugin and "@" in plugin:
+                elem.attrib["plugin"] = plugin.split("@", 1)[0]
+
+            if elem.text is not None and not elem.text.strip():
+                elem.text = None
+
+            if elem.tail is not None and not elem.tail.strip():
+                elem.tail = None
+
+        sys.stdout.write(
+            ET.tostring(
+                root,
+                encoding="unicode",
+                short_empty_elements=True
+            )
+        )
+    stdin: "{{ jenkins_job_check.content }}"
+  register: jenkins_current_config_normalized
+  changed_when: false
+  check_mode: false
+  when: jenkins_job_check.status == 200
+  no_log: true
+
+
+# ---------------------------------------------------------
+# Job 상태 판단
+# ---------------------------------------------------------
+
+- name: Determine NeuroPlan Jenkins pipeline job state
+  ansible.builtin.set_fact:
+    jenkins_job_needs_create: >-
+      {{
+        jenkins_job_check.status == 404
+      }}
+
+    jenkins_job_needs_update: >-
+      {{
+        jenkins_job_check.status == 200
+        and
+        (
+          jenkins_current_config_normalized.stdout | default('')
+        )
+        !=
+        (
+          jenkins_desired_config_normalized.stdout | default('')
+        )
+      }}
+  changed_when: false
+
+
+# ---------------------------------------------------------
+# Job 생성
+#
+# Job이 없을 때만 실행한다.
+# Check Mode에서는 절대 POST하지 않는다.
+# ---------------------------------------------------------
 
 - name: Create NeuroPlan Jenkins pipeline job
   ansible.builtin.uri:
@@ -197,14 +370,24 @@
     force_basic_auth: true
     headers:
       Content-Type: "application/xml"
-    body: "{{ lookup('ansible.builtin.template', 'neuroplan-ci.xml.j2') }}"
+    body: "{{ jenkins_desired_config_raw }}"
+    body_format: raw
     status_code:
       - 200
       - 201
-  when: jenkins_job_check.status == 404
+  when:
+    - jenkins_job_needs_create | bool
+    - not (jenkins_check_only | bool)
   no_log: true
   become: false
 
+
+# ---------------------------------------------------------
+# Job 업데이트
+#
+# Job이 존재하고 실제 설정이 다를 때만 실행한다.
+# Check Mode에서는 절대 POST하지 않는다.
+# ---------------------------------------------------------
 
 - name: Update NeuroPlan Jenkins pipeline job
   ansible.builtin.uri:
@@ -215,9 +398,33 @@
     force_basic_auth: true
     headers:
       Content-Type: "application/xml"
-    body: "{{ lookup('ansible.builtin.template', 'neuroplan-ci.xml.j2') }}"
+    body: "{{ jenkins_desired_config_raw }}"
+    body_format: raw
     status_code:
       - 200
-  when: jenkins_job_check.status == 200
+  when:
+    - jenkins_job_needs_update | bool
+    - not (jenkins_check_only | bool)
   no_log: true
   become: false
+
+
+# ---------------------------------------------------------
+# Check Mode 결과
+# ---------------------------------------------------------
+
+- name: Show Jenkins pipeline job validation result
+  ansible.builtin.debug:
+    msg: >-
+      {% if jenkins_job_needs_create | bool %}
+      Jenkins job '{{ jenkins_job_name }}' does not exist and would be CREATED.
+      {% elif jenkins_job_needs_update | bool %}
+      Jenkins job '{{ jenkins_job_name }}' exists but configuration differs and would be UPDATED.
+      {% else %}
+      Jenkins job '{{ jenkins_job_name }}' exists and configuration is synchronized.
+      {% endif %}
+  changed_when: >-
+    (jenkins_job_needs_create | bool)
+    or
+    (jenkins_job_needs_update | bool)
+  when: jenkins_check_only | bool

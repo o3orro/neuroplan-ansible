@@ -14,33 +14,55 @@
     cmd: timedatectl set-timezone Asia/Seoul
   when: current_timezone.stdout != "Asia/Seoul"
 
-- name: Install common packages
+# ------------------------------------------------------------
+# Common Packages
+# 설치되어 있으면 Skip / 없으면 Install
+# ------------------------------------------------------------
+
+- name: Check installed common packages
+  ansible.builtin.command:
+    cmd: "rpm -q {{ item }}"
+  loop:
+    - curl
+    - wget
+    - git
+    - net-tools
+    - bind-utils
+    - bash-completion
+    - rsync
+    - tar
+  register: common_package_check
+  changed_when: false
+  failed_when: false
+
+- name: Install missing common packages
   ansible.builtin.dnf:
-    name:
-      - vim
-      - curl
-      - wget
-      - git
-      - net-tools
-      - bind-utils
-      - bash-completion
-      - rsync
-      - tar
+    name: "{{ item.item }}"
     state: present
+  loop: "{{ common_package_check.results }}"
+  when: item.rc != 0
+  loop_control:
+    label: "{{ item.item }}"
+
 # ------------------------------------------------------------
-# /etc/hosts - Infra hostname 표준화
+# SSH Service
 # ------------------------------------------------------------
 
-- name: Remove old infra.example.com entry
-  ansible.builtin.lineinfile:
-    path: /etc/hosts
-    regexp: '^\s*192\.168\.14\.62\s+infra\.example\.com\s+infra\s*$'
-    state: absent
-    backup: true
+- name: Ensure SSH service is enabled and started
+  ansible.builtin.systemd_service:
+    name: sshd
+    enabled: true
+    state: started
 
-- name: Configure Infra nplan.local entry
-  ansible.builtin.lineinfile:
-    path: /etc/hosts
-    regexp: '^\s*192\.168\.14\.62\s+'
-    line: '192.168.14.62 infra.nplan.local infra'
-    state: present
+- name: Verify SSH service
+  ansible.builtin.command:
+    cmd: systemctl is-active sshd
+  register: common_sshd_status
+  changed_when: false
+  failed_when: common_sshd_status.stdout != "active"
+
+- name: Display SSH service status
+  ansible.builtin.debug:
+    msg: "SSHD: {{ common_sshd_status.stdout }}"
+
+

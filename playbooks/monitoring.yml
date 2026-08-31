@@ -1,0 +1,25 @@
+---
+# ============================================================
+# Non-Kubernetes VMs
+# ============================================================
+
+- name: Install Node Exporter on non-Kubernetes VMs
+  hosts: monitoring_vm_nodes
+  become: true
+  gather_facts: false
+
+  roles:
+    - node_exporter_vm
+
+
+# ============================================================
+# Kubernetes Nodes
+# ============================================================
+
+- name: Deploy Node Exporter DaemonSet to Kubernetes
+  hosts: devops_nodes
+  become: false
+  gather_facts: false
+
+  roles:
+    - node_exporter_k8s

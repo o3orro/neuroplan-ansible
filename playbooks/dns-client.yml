@@ -1,0 +1,8 @@
+---
+- name: Configure DNS Clients
+  hosts: "loadbalancers:database:nfs_nodes:devops_nodes:minio_nodes:k3s_nodes"
+  become: true
+  gather_facts: true
+
+  roles:
+    - dns_client

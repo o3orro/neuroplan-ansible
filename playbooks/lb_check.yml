@@ -1,0 +1,121 @@
+---
+- name: Check Load Balancer Health
+  hosts: loadbalancers
+  become: true
+  gather_facts: false
+
+  vars:
+    k8s_api_vip: "192.168.34.100"
+    k8s_api_port: 6443
+
+  tasks:
+    - name: Check HAProxy service
+      ansible.builtin.command:
+        cmd: systemctl is-active haproxy
+      register: haproxy_status
+      changed_when: false
+      failed_when: false
+
+    - name: Check Keepalived service
+      ansible.builtin.command:
+        cmd: systemctl is-active keepalived
+      register: keepalived_status
+      changed_when: false
+      failed_when: false
+
+    - name: Validate HAProxy configuration
+      ansible.builtin.command:
+        cmd: haproxy -c -f /etc/haproxy/haproxy.cfg
+      register: haproxy_config
+      changed_when: false
+      failed_when: false
+
+    - name: Check Kubernetes API VIP
+      ansible.builtin.shell:
+        cmd: ip -4 -o addr show | grep -w "{{ k8s_api_vip }}"
+      register: vip_status
+      changed_when: false
+      failed_when: false
+
+    - name: Check Kubernetes API port
+      ansible.builtin.shell:
+        cmd: ss -lnt | grep ":{{ k8s_api_port }} "
+      register: api_port_status
+      changed_when: false
+      failed_when: false
+
+    - name: Show LB health result
+      ansible.builtin.debug:
+        msg:
+          - "Host: {{ inventory_hostname }}"
+          - "HAProxy: {{ haproxy_status.stdout | default('unknown') }}"
+          - "Keepalived: {{ keepalived_status.stdout | default('unknown') }}"
+          - "HAProxy config: {{ 'OK' if haproxy_config.rc == 0 else 'FAILED' }}"
+          - "VIP {{ k8s_api_vip }}: {{ 'OWNED' if vip_status.rc == 0 else 'NOT OWNED' }}"
+          - "Port {{ k8s_api_port }}: {{ 'LISTENING' if api_port_status.rc == 0 else 'NOT LISTENING' }}"
+
+    - name: Validate essential LB status
+      ansible.builtin.assert:
+        that:
+          - haproxy_status.stdout == "active"
+          - keepalived_status.stdout == "active"
+          - haproxy_config.rc == 0
+          - api_port_status.rc == 0
+        success_msg: "{{ inventory_hostname }} LB health check PASSED"
+        fail_msg: "{{ inventory_hostname }} LB health check FAILED"
+
+# ============================================================
+# VIP Ownership Validation
+# ============================================================
+
+- name: Validate VIP Ownership
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    k8s_api_vip: "192.168.34.100"
+
+  tasks:
+    - name: Build VIP holder list
+      ansible.builtin.set_fact:
+        vip_holders: >-
+          {{
+            (vip_holders | default([]))
+            +
+            ([item] if hostvars[item].vip_status.rc == 0 else [])
+          }}
+      loop: "{{ groups['loadbalancers'] }}"
+
+    - name: Show VIP holder
+      ansible.builtin.debug:
+        msg: "VIP {{ k8s_api_vip }} holder: {{ vip_holders }}"
+
+    - name: Verify exactly one LB owns VIP
+      ansible.builtin.assert:
+        that:
+          - vip_holders | length == 1
+        success_msg: "VIP {{ k8s_api_vip }} is correctly owned by {{ vip_holders[0] }}"
+        fail_msg: "VIP ownership abnormal. Current holders: {{ vip_holders }}"          
+
+    - name: Show LB final summary
+      ansible.builtin.debug:
+        msg:
+          - "========================================"
+          - " LOAD BALANCER HEALTH CHECK SUMMARY"
+          - "========================================"
+          - "LB1 HAProxy       : {{ hostvars['lb1'].haproxy_status.stdout | default('UNKNOWN') }}"
+          - "LB1 Keepalived    : {{ hostvars['lb1'].keepalived_status.stdout | default('UNKNOWN') }}"
+          - "LB1 HAProxy Config: {{ 'OK' if hostvars['lb1'].haproxy_config.rc == 0 else 'FAILED' }}"
+          - "LB1 VIP           : {{ 'OWNED' if hostvars['lb1'].vip_status.rc == 0 else 'NOT OWNED' }}"
+          - "LB1 Port 6443     : {{ 'LISTENING' if hostvars['lb1'].api_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "----------------------------------------"
+          - "LB2 HAProxy       : {{ hostvars['lb2'].haproxy_status.stdout | default('UNKNOWN') }}"
+          - "LB2 Keepalived    : {{ hostvars['lb2'].keepalived_status.stdout | default('UNKNOWN') }}"
+          - "LB2 HAProxy Config: {{ 'OK' if hostvars['lb2'].haproxy_config.rc == 0 else 'FAILED' }}"
+          - "LB2 VIP           : {{ 'OWNED' if hostvars['lb2'].vip_status.rc == 0 else 'NOT OWNED' }}"
+          - "LB2 Port 6443     : {{ 'LISTENING' if hostvars['lb2'].api_port_status.rc == 0 else 'NOT LISTENING' }}"
+          - "----------------------------------------"
+          - "VIP Holder        : {{ vip_holders | join(', ') }}"
+          - "========================================"
+          - "Overall           : PASSED"
+          - "========================================"          
