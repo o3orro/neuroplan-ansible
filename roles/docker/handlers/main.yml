@@ -1,2 +1,5 @@
 ---
-# handlers file for roles/docker
+- name: Restart Docker
+  ansible.builtin.systemd_service:
+    name: docker
+    state: restarted

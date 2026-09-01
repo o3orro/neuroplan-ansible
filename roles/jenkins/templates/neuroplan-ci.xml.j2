@@ -10,7 +10,7 @@
     <org.jenkinsci.plugins.workflow.job.properties.PipelineTriggersJobProperty>
       <triggers>
         <hudson.triggers.SCMTrigger>
-          <spec>H/2 * * * *</spec>
+          <spec>{{ jenkins_poll_scm }}</spec>
           <ignorePostCommitHooks>false</ignorePostCommitHooks>
         </hudson.triggers.SCMTrigger>
       </triggers>
@@ -27,13 +27,13 @@
 
       <userRemoteConfigs>
         <hudson.plugins.git.UserRemoteConfig>
-          <url>https://github.com/o3orro/neuroplan-app.git</url>
+          <url>https://github.com/{{ application_github_owner }}/{{ application_github_repository }}.git</url>
         </hudson.plugins.git.UserRemoteConfig>
       </userRemoteConfigs>
 
       <branches>
         <hudson.plugins.git.BranchSpec>
-          <name>*/main</name>
+          <name>*/{{ application_git_branch }}</name>
         </hudson.plugins.git.BranchSpec>
       </branches>
 
@@ -43,7 +43,7 @@
 
     </scm>
 
-    <scriptPath>Jenkinsfile</scriptPath>
+    <scriptPath>{{ jenkins_pipeline_script_path }}</scriptPath>
     <lightweight>true</lightweight>
 
   </definition>

@@ -15,6 +15,15 @@
     name: "{{ docker_packages }}"
     state: present
 
+- name: Configure Docker daemon
+  ansible.builtin.template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Docker
+
 - name: Enable and start Docker service
   ansible.builtin.systemd_service:
     name: docker

@@ -17,3 +17,5 @@ jenkins_gitops
 # Python
 __pycache__/
 *.pyc
+*.bak
+*.bak.*

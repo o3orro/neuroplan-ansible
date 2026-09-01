@@ -9,15 +9,17 @@ spec:
   project: {{ argocd_project }}
 
   source:
-    repoURL: https://github.com/{{ github_owner }}/{{ github_gitops_repository }}.git
-    targetRevision: {{ gitops_branch }}
-    path: {{ gitops_manifest_path }}
+    repoURL: https://github.com/{{ application_github_owner }}/{{ application_github_repository }}.git
+    targetRevision: {{ application_git_branch }}
+    path: {{ application_kustomize_path }}
 
   destination:
     server: https://kubernetes.default.svc
     namespace: {{ argocd_destination_namespace }}
 
+{% if argocd_automated_sync | bool %}
   syncPolicy:
     automated:
       prune: true
       selfHeal: true
+{% endif %}

@@ -1,0 +1,48 @@
+---
+# =========================================================
+# kubectl Client
+# =========================================================
+
+- name: Check current kubectl binary
+  ansible.builtin.stat:
+    path: "{{ kubectl_install_path }}"
+  register: kubectl_binary
+
+
+- name: Get kubectl SHA256 checksum
+  ansible.builtin.uri:
+    url: "{{ kubectl_download_url }}.sha256"
+    return_content: true
+    status_code: 200
+  register: kubectl_checksum
+  changed_when: false
+  check_mode: false
+  become: false
+
+
+- name: Install kubectl system-wide
+  ansible.builtin.get_url:
+    url: "{{ kubectl_download_url }}"
+    dest: "{{ kubectl_install_path }}"
+    owner: root
+    group: root
+    mode: "0755"
+    checksum: "sha256:{{ kubectl_checksum.content | trim }}"
+
+
+- name: Verify kubectl client
+  ansible.builtin.command:
+    cmd: "{{ kubectl_install_path }} version --client"
+  register: kubectl_version_check
+  changed_when: false
+  check_mode: false
+  when:
+    - not ansible_check_mode or kubectl_binary.stat.exists
+
+
+- name: Show kubectl client version
+  ansible.builtin.debug:
+    var: kubectl_version_check.stdout
+  when:
+    - kubectl_version_check is defined
+    - kubectl_version_check.stdout is defined

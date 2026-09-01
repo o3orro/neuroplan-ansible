@@ -10,3 +10,9 @@ docker_packages:
 
 docker_users:
   - devops
+# =========================================================
+# Private Container Registry
+# =========================================================
+
+docker_insecure_registries:
+  - "192.168.34.21:5000"

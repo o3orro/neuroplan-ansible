@@ -12,6 +12,9 @@ argocd_chart_version: "10.4.0"
 argocd_kubeconfig: "/home/devops/.kube/config"
 
 # Argo CD Application
-argocd_application_name: "neuroplan"
+argocd_application_name: "neuroplan-login-mvp"
 argocd_project: "default"
-argocd_destination_namespace: "neuroplan"
+argocd_destination_namespace: "application"
+
+# 최초 연결 시 자동 Sync 비활성화
+argocd_automated_sync: false

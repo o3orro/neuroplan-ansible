@@ -1,0 +1,45 @@
+---
+- name: Initial Argo CD Application Sync
+  hosts: devops_nodes
+  become: true
+
+  tasks:
+    - name: Trigger initial Argo CD sync
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/home/devops/.kube/config
+          - patch
+          - application
+          - neuroplan-login-mvp
+          - -n
+          - argocd
+          - --type=merge
+          - -p
+          - '{"operation":{"sync":{"prune":false}}}'
+      register: argocd_sync_trigger
+      changed_when: "'patched' in argocd_sync_trigger.stdout"
+      become: false
+
+    - name: Wait for Argo CD Application to become Synced and Healthy
+      ansible.builtin.command:
+        argv:
+          - kubectl
+          - --kubeconfig=/home/devops/.kube/config
+          - get
+          - application
+          - neuroplan-login-mvp
+          - -n
+          - argocd
+          - -o
+          - jsonpath={.status.sync.status}:{.status.health.status}
+      register: argocd_sync_status
+      changed_when: false
+      retries: 60
+      delay: 5
+      until: argocd_sync_status.stdout == "Synced:Healthy"
+      become: false
+
+    - name: Show Argo CD sync result
+      ansible.builtin.debug:
+        msg: "Argo CD Application status: {{ argocd_sync_status.stdout }}"

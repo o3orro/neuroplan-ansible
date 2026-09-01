@@ -28,6 +28,27 @@ github_owner: "o3orro"
 github_app_repository: "neuroplan-app"
 github_gitops_repository: "neuroplan-gitops"
 
+# =========================================================
+# Real Application Repository
+# =========================================================
+application_github_owner: "Infrastructure-hybrid09"
+application_github_repository: "onprem-k8s-application-devopsVM"
+application_git_branch: "main"
+
+# 실제 애플리케이션이 저장소 안에 있는 위치
+application_root_path: "neuroplan-login-mvp"
+
+# Argo CD가 감시할 Kustomize 경로
+application_kustomize_path: "neuroplan-login-mvp/k8s/onprem"
+
+
+# =========================================================
+# Internal Container Registry
+# =========================================================
+container_registry: "192.168.34.21:5000"
+
+frontend_image_repository: "neuroplan/frontend"
+backend_image_repository: "neuroplan/backend"
 
 # =========================================================
 # Docker Hub
@@ -64,12 +85,17 @@ jenkins_api_token: "{{ vault_jenkins_api_token }}"
 # =========================================================
 jenkins_dockerhub_credential_id: "dockerhub-credentials"
 jenkins_gitops_credential_id: "gitops-ssh-credentials"
-
+jenkins_app_repo_credential_id: "app-repo-write-credentials"
 
 # =========================================================
 # Jenkins Pipeline Job
 # =========================================================
-jenkins_job_name: "neuroplan-ci"
+jenkins_job_name: "neuroplan-login-mvp-ci"
 jenkins_git_branch: "main"
 jenkins_pipeline_script_path: "Jenkinsfile"
 jenkins_poll_scm: "H/2 * * * *"
+
+# =========================================================
+# Argo CD
+# =========================================================
+argocd_automated_sync: true

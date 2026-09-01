@@ -8,6 +8,11 @@
     - maven
     - nodejs
     - docker
+
+    - role: kubectl_client
+      tags:
+        - kubectl_client
+
     - jenkins
     - helm
     - argocd

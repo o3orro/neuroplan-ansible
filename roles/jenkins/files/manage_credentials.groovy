@@ -15,6 +15,7 @@ def changed = false
 
 // =====================================================
 // Docker Hub Credential
+// - Backend base image pull 등에 사용
 // =====================================================
 
 def dockerCredentialId = '$docker_credential_id'
@@ -60,55 +61,56 @@ if (!dockerSame) {
 
 
 // =====================================================
-// GitOps SSH Credential
+// Application Repository SSH Credential
+// - 실제 팀 App Repository newTag commit/push용
 // =====================================================
 
-def gitopsCredentialId = '$gitops_credential_id'
-def gitopsPrivateKey   = '''$gitops_private_key'''
-def gitopsDescription  = 'GitHub NeuroPlan GitOps Deploy Key'
+def appRepoCredentialId = '$app_repo_credential_id'
+def appRepoPrivateKey   = '''$app_repo_private_key'''
+def appRepoDescription  = 'GitHub NeuroPlan Application Repository Deploy Key'
 
-def existingGitops = store.getCredentials(domain).find {
-    it.id == gitopsCredentialId
+def existingAppRepo = store.getCredentials(domain).find {
+    it.id == appRepoCredentialId
 }
 
-def newGitopsCredential = new BasicSSHUserPrivateKey(
+def newAppRepoCredential = new BasicSSHUserPrivateKey(
     CredentialsScope.GLOBAL,
-    gitopsCredentialId,
+    appRepoCredentialId,
     'git',
-    new DirectEntryPrivateKeySource(gitopsPrivateKey),
+    new DirectEntryPrivateKeySource(appRepoPrivateKey),
     '',
-    gitopsDescription
+    appRepoDescription
 )
 
-def existingPrivateKey = ''
+def existingAppRepoPrivateKey = ''
 
-if (existingGitops instanceof BasicSSHUserPrivateKey) {
+if (existingAppRepo instanceof BasicSSHUserPrivateKey) {
 
-    def keys = existingGitops.getPrivateKeys()
+    def keys = existingAppRepo.getPrivateKeys()
 
     if (keys != null && !keys.isEmpty()) {
-        existingPrivateKey = keys[0].trim()
+        existingAppRepoPrivateKey = keys[0].trim()
     }
 }
 
-def gitopsSame =
-    existingGitops instanceof BasicSSHUserPrivateKey &&
-    existingGitops.username == 'git' &&
-    existingPrivateKey == gitopsPrivateKey.trim() &&
-    existingGitops.description == gitopsDescription
+def appRepoSame =
+    existingAppRepo instanceof BasicSSHUserPrivateKey &&
+    existingAppRepo.username == 'git' &&
+    existingAppRepoPrivateKey == appRepoPrivateKey.trim() &&
+    existingAppRepo.description == appRepoDescription
 
-if (!gitopsSame) {
+if (!appRepoSame) {
 
-    if (existingGitops != null) {
+    if (existingAppRepo != null) {
         store.updateCredentials(
             domain,
-            existingGitops,
-            newGitopsCredential
+            existingAppRepo,
+            newAppRepoCredential
         )
     } else {
         store.addCredentials(
             domain,
-            newGitopsCredential
+            newAppRepoCredential
         )
     }
 
