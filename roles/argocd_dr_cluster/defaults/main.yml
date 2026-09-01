@@ -1,0 +1,21 @@
+---
+# DR K3s에서 읽어올 Argo CD 전용 인증정보
+argocd_dr_source_host: "dr-k3s"
+argocd_dr_kubectl_bin: "/usr/local/bin/kubectl"
+
+argocd_dr_service_account_namespace: "kube-system"
+argocd_dr_token_secret_name: "argocd-dr-manager-token"
+
+# Main Argo CD에 등록할 DR Cluster 정보
+argocd_dr_cluster_secret_name: "cluster-dr-k3s"
+argocd_dr_cluster_name: "dr-k3s"
+argocd_dr_server: "https://192.168.34.71:6443"
+argocd_dr_managed_namespace: "application"
+
+# Ansible 실행 서버에서 사용하는 Main K8s kubectl
+argocd_main_kubectl_bin: "kubectl"
+argocd_main_namespace: "argocd"
+
+# Main Argo CD 보호를 위한 확인 대상
+argocd_main_application_name: "neuroplan-login-mvp"
+argocd_main_expected_destination: "https://kubernetes.default.svc"

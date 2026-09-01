@@ -1,0 +1,23 @@
+node-name: {{ k3s_node_name }}
+
+node-ip: {{ k3s_node_ip }}
+advertise-address: {{ k3s_advertise_address }}
+
+tls-san:
+  - {{ k3s_node_ip }}
+  - {{ k3s_node_name }}
+
+flannel-iface: {{ k3s_flannel_iface }}
+
+cluster-cidr: {{ k3s_cluster_cidr }}
+service-cidr: {{ k3s_service_cidr }}
+service-node-port-range: {{ k3s_service_node_port_range }}
+
+cluster-domain: {{ k3s_cluster_domain }}
+
+selinux: true
+
+disable:
+{% for component in k3s_disable_components %}
+  - {{ component }}
+{% endfor %}

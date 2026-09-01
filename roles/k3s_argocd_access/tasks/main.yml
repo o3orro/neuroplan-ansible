@@ -1,0 +1,98 @@
+---
+- name: Validate Argo CD access variables
+  ansible.builtin.assert:
+    that:
+      - k3s_argocd_namespace | length > 0
+      - k3s_argocd_service_account_name | length > 0
+      - k3s_argocd_token_secret_name | length > 0
+    fail_msg: "K3s Argo CD access variables are not configured correctly."
+
+- name: Check k3s service
+  ansible.builtin.command:
+    cmd: systemctl is-active k3s
+  register: k3s_argocd_k3s_status
+  changed_when: false
+
+- name: Ensure k3s is running
+  ansible.builtin.assert:
+    that:
+      - k3s_argocd_k3s_status.stdout == "active"
+    fail_msg: "k3s is not running. Argo CD access configuration was aborted."
+
+- name: Deploy Argo CD access manifest
+  ansible.builtin.template:
+    src: argocd-access.yaml.j2
+    dest: "{{ k3s_argocd_manifest_path }}"
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: Apply Argo CD access resources
+  ansible.builtin.command:
+    cmd: "{{ k3s_argocd_kubectl_bin }} apply -f {{ k3s_argocd_manifest_path }}"
+  register: k3s_argocd_apply
+  changed_when: >
+    ' created' in k3s_argocd_apply.stdout or
+    ' configured' in k3s_argocd_apply.stdout
+
+- name: Wait for service account token
+  ansible.builtin.shell: |
+    set -o pipefail
+
+    for i in $(seq 1 30); do
+      TOKEN="$({{ k3s_argocd_kubectl_bin }} -n kube-system get secret \
+        {{ k3s_argocd_token_secret_name }} \
+        -o jsonpath='{.data.token}' 2>/dev/null || true)"
+
+      if [ -n "$TOKEN" ]; then
+        exit 0
+      fi
+
+      sleep 1
+    done
+
+    exit 1
+  args:
+    executable: /bin/bash
+  changed_when: false
+
+- name: Verify Argo CD permission in application namespace
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_argocd_kubectl_bin }}"
+      - auth
+      - can-i
+      - create
+      - deployments.apps
+      - --namespace={{ k3s_argocd_namespace }}
+      - --as=system:serviceaccount:kube-system:{{ k3s_argocd_service_account_name }}
+  register: k3s_argocd_allowed
+  changed_when: false
+  failed_when: k3s_argocd_allowed.stdout != "yes"
+
+- name: Verify Argo CD cannot manage default namespace
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_argocd_kubectl_bin }}"
+      - auth
+      - can-i
+      - create
+      - deployments.apps
+      - --namespace=default
+      - --as=system:serviceaccount:kube-system:{{ k3s_argocd_service_account_name }}
+  register: k3s_argocd_default_permission
+  changed_when: false
+  failed_when: k3s_argocd_default_permission.stdout != "no"
+
+- name: Verify Argo CD cannot create namespaces
+  ansible.builtin.command:
+    argv:
+      - "{{ k3s_argocd_kubectl_bin }}"
+      - auth
+      - can-i
+      - create
+      - namespaces
+      - --as=system:serviceaccount:kube-system:{{ k3s_argocd_service_account_name }}
+  register: k3s_argocd_namespace_create
+  changed_when: false
+  failed_when: k3s_argocd_namespace_create.stdout != "no"

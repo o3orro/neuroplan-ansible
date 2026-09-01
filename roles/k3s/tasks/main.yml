@@ -1,0 +1,147 @@
+---
+- name: Validate required K3s variables
+  ansible.builtin.assert:
+    that:
+      - k3s_management_ip | length > 0
+      - k3s_node_ip | length > 0
+      - k3s_node_name | length > 0
+    fail_msg: "K3s 필수 변수가 설정되지 않았습니다."
+
+- name: Safety check K3s target IP addresses
+  ansible.builtin.assert:
+    that:
+      - k3s_management_ip in ansible_all_ipv4_addresses
+      - k3s_node_ip in ansible_all_ipv4_addresses
+    fail_msg: >-
+      K3s 대상 서버의 IP가 예상값과 다릅니다.
+      Expected management={{ k3s_management_ip }},
+      node={{ k3s_node_ip }}
+      Actual={{ ansible_all_ipv4_addresses }}
+
+- name: Install K3s prerequisite packages
+  ansible.builtin.dnf:
+    name:
+      - curl
+      - container-selinux
+    state: present
+
+- name: Ensure K3s configuration directory exists
+  ansible.builtin.file:
+    path: /etc/rancher/k3s
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Ensure K3s install script directory exists
+  ansible.builtin.file:
+    path: /usr/local/src
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+
+- name: Check whether K3s is installed
+  ansible.builtin.stat:
+    path: /usr/local/bin/k3s
+  register: k3s_binary
+
+- name: Check installed K3s version
+  ansible.builtin.command:
+    cmd: /usr/local/bin/k3s --version
+  register: k3s_installed_version
+  changed_when: false
+  when: k3s_binary.stat.exists
+
+- name: Protect K3s from unintended version change
+  ansible.builtin.assert:
+    that:
+      - k3s_version in k3s_installed_version.stdout
+    fail_msg: >-
+      현재 설치된 K3s 버전과 Ansible 설정 버전이 다릅니다.
+      자동 업그레이드 또는 다운그레이드를 중지합니다.
+      Requested={{ k3s_version }}
+  when: k3s_binary.stat.exists
+
+- name: Deploy K3s configuration
+  ansible.builtin.template:
+    src: config.yaml.j2
+    dest: /etc/rancher/k3s/config.yaml
+    owner: root
+    group: root
+    mode: "0600"
+  notify: Restart k3s
+
+- name: Download K3s installer
+  ansible.builtin.get_url:
+    url: "{{ k3s_install_url }}"
+    dest: "{{ k3s_install_script_path }}"
+    owner: root
+    group: root
+    mode: "0700"
+  when: not k3s_binary.stat.exists
+
+- name: Install pinned K3s version
+  ansible.builtin.command:
+    cmd: "{{ k3s_install_script_path }}"
+    creates: /usr/local/bin/k3s
+  environment:
+    INSTALL_K3S_VERSION: "{{ k3s_version }}"
+  when: not k3s_binary.stat.exists
+
+- name: Ensure K3s service is enabled and running
+  ansible.builtin.systemd:
+    name: k3s
+    enabled: true
+    state: started
+
+- name: Apply pending K3s configuration changes
+  ansible.builtin.meta: flush_handlers
+
+- name: Wait for K3s API server
+  ansible.builtin.wait_for:
+    host: "{{ k3s_node_ip }}"
+    port: 6443
+    state: started
+    timeout: 60
+
+- name: Check K3s node Ready status
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - get
+      - node
+      - "{{ k3s_node_name }}"
+      - -o
+      - 'jsonpath={.status.conditions[?(@.type=="Ready")].status}'
+  register: k3s_node_ready
+  changed_when: false
+
+- name: Verify K3s node is Ready
+  ansible.builtin.assert:
+    that:
+      - k3s_node_ready.stdout == "True"
+    fail_msg: "K3s 노드가 Ready 상태가 아닙니다."
+
+- name: Check K3s Internal IP
+  ansible.builtin.command:
+    argv:
+      - /usr/local/bin/k3s
+      - kubectl
+      - get
+      - node
+      - "{{ k3s_node_name }}"
+      - -o
+      - 'jsonpath={.status.addresses[?(@.type=="InternalIP")].address}'
+  register: k3s_internal_ip
+  changed_when: false
+
+- name: Verify K3s Internal IP
+  ansible.builtin.assert:
+    that:
+      - k3s_internal_ip.stdout == k3s_node_ip
+    fail_msg: >-
+      K3s Internal IP가 예상값과 다릅니다.
+      Expected={{ k3s_node_ip }}
+      Actual={{ k3s_internal_ip.stdout }}

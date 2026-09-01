@@ -1,0 +1,12 @@
+---
+k3s_argocd_namespace: "application"
+
+k3s_argocd_service_account_name: "argocd-dr-manager"
+k3s_argocd_token_secret_name: "argocd-dr-manager-token"
+
+k3s_argocd_role_name: "argocd-dr-application-manager"
+k3s_argocd_namespace_reader_role_name: "argocd-dr-namespace-reader"
+
+k3s_argocd_manifest_path: "/etc/rancher/k3s/argocd-access.yaml"
+
+k3s_argocd_kubectl_bin: "/usr/local/bin/kubectl"

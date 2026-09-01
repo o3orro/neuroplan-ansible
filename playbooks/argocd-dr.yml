@@ -1,0 +1,8 @@
+---
+- name: Register DR k3s cluster in Main Argo CD
+  hosts: k3s_nodes
+  become: true
+  gather_facts: false
+
+  roles:
+    - argocd_dr_cluster

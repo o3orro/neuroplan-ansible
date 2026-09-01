@@ -1,0 +1,78 @@
+---
+- name: Validate DR Application variables
+  ansible.builtin.assert:
+    that:
+      - argocd_dr_application_name | length > 0
+      - argocd_dr_repo_url | length > 0
+      - argocd_dr_target_revision | length > 0
+      - argocd_dr_path | length > 0
+      - argocd_dr_destination_server | length > 0
+    fail_msg: "DR Argo CD Application variables are invalid."
+
+- name: Verify existing Main Application
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - -n
+      - "{{ argocd_namespace }}"
+      - get
+      - application
+      - "{{ argocd_main_application_name }}"
+      - -o
+      - jsonpath={.spec.project}
+  register: argocd_main_project
+  changed_when: false
+
+- name: Use same AppProject as Main Application
+  ansible.builtin.set_fact:
+    argocd_dr_project: >-
+      {{ argocd_main_project.stdout if argocd_main_project.stdout | length > 0 else 'default' }}
+
+- name: Verify DR cluster registration exists
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - -n
+      - "{{ argocd_namespace }}"
+      - get
+      - secret
+      - "{{ argocd_dr_cluster_secret_name }}"
+      - -o
+      - jsonpath={.metadata.labels.argocd\.argoproj\.io/secret-type}
+  register: argocd_dr_cluster_check
+  changed_when: false
+
+- name: Ensure DR cluster registration is valid
+  ansible.builtin.assert:
+    that:
+      - argocd_dr_cluster_check.stdout == "cluster"
+    fail_msg: "DR K3s is not registered in Argo CD."
+
+- name: Create DR Argo CD Application
+  ansible.builtin.command:
+    cmd: kubectl apply -f -
+    stdin: "{{ lookup('ansible.builtin.template', 'application.yaml.j2') }}"
+  register: argocd_dr_application_apply
+  changed_when: >
+    ' created' in argocd_dr_application_apply.stdout or
+    ' configured' in argocd_dr_application_apply.stdout
+
+- name: Verify DR Application exists
+  ansible.builtin.command:
+    argv:
+      - kubectl
+      - -n
+      - "{{ argocd_namespace }}"
+      - get
+      - application
+      - "{{ argocd_dr_application_name }}"
+      - -o
+      - name
+  register: argocd_dr_application_check
+  changed_when: false
+
+- name: Ensure DR Application exists
+  ansible.builtin.assert:
+    that:
+      - argocd_dr_application_check.stdout == 'application.argoproj.io/' ~ argocd_dr_application_name
+    fail_msg: "DR Argo CD Application was not created."    

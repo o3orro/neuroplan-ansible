@@ -1,0 +1,8 @@
+---
+- name: Configure DR Argo CD Application
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  roles:
+    - argocd_dr_application
